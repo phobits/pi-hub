@@ -316,14 +316,14 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobo-at/pi-hub/compare/v0.5.1...HEAD
-[0.5.1]: https://github.com/phobo-at/pi-hub/compare/v0.5.0...v0.5.1
-[0.5.0]: https://github.com/phobo-at/pi-hub/compare/v0.4.1...v0.5.0
-[0.4.1]: https://github.com/phobo-at/pi-hub/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/phobo-at/pi-hub/compare/v0.3.1...v0.4.0
-[0.3.1]: https://github.com/phobo-at/pi-hub/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/phobo-at/pi-hub/compare/v0.2.2...v0.3.0
-[0.2.2]: https://github.com/phobo-at/pi-hub/compare/v0.2.1...v0.2.2
-[0.2.1]: https://github.com/phobo-at/pi-hub/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/phobo-at/pi-hub/releases/tag/v0.2.0
-[0.1.0]: https://github.com/phobo-at/pi-hub/commits/v0.2.0
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/phobits/pi-hub/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/phobits/pi-hub/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/phobits/pi-hub/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/phobits/pi-hub/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/phobits/pi-hub/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/phobits/pi-hub/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/phobits/pi-hub/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/phobits/pi-hub/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/phobits/pi-hub/releases/tag/v0.2.0
+[0.1.0]: https://github.com/phobits/pi-hub/commits/v0.2.0

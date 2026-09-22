@@ -1,7 +1,7 @@
 # Umfassender Repo-Review – Prompt
 
 Verwende diesen Prompt, um eine gründliche, hardware-bewusste Review des
-Smart-Display-Repos (`phobo-at/pi-hub`) durchzuführen. Die Review soll ehrlich,
+Smart-Display-Repos (`phobits/pi-hub`) durchzuführen. Die Review soll ehrlich,
 priorisiert und reproduzierbar sein – keine generische Checkliste, sondern
 konkrete Fundstellen mit `datei:zeile`.
 
