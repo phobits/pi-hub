@@ -11,13 +11,13 @@ Six swappable hero clocks. Tap the hero clock to cycle through them; the choice 
 | ![Flip](docs/screenshots/flip.png) **Flip** (default) | ![LCD](docs/screenshots/lcd.png) **LCD** | ![Pulse](docs/screenshots/pulse.png) **Pulse** |
 | ![QLOCKTWO](docs/screenshots/qlocktwo.png) **QLOCKTWO** | ![QLOCKTWO OÖ](docs/screenshots/qlocktwo-ooe.png) **QLOCKTWO OÖ** | ![Analog](docs/screenshots/analog.png) **Analog** |
 
-Regenerate the screenshots with `bash scripts/take-screenshots.sh` (headless Chrome against the local demo server, 1024×600).
+Regenerate the screenshots with `bash scripts/take-screenshots.sh` (headless Chrome against the local demo server, 1024×600). `python scripts/screenshot-states.py OUT_DIR` renders every state as well — idle, timer, night, empty, offline, screensaver, sheet, alarm.
 
-> The UI ships in German — this is a personal device. For reference: `Termine` = Calendar, `Wetter Zuhause` = Home Weather, `Musik starten` = Start music, `Berühren zum Aufwecken` = Touch to wake. The QLOCKTWO OÖ face is the Upper Austrian dialect variant of the classic word clock.
+> The UI ships in German — this is a personal device. For reference: `Heute · Donnerstag` = Today · Thursday, `in 48 Min` = in 48 minutes, `Musik starten` = Start music, `Offline · Stand 15:10` = Offline · as of 15:10, `Berühren zum Aufwecken` = Touch to wake. The QLOCKTWO OÖ face is the Upper Austrian dialect variant of the classic word clock.
 
 ## Spotify Screen
 
-Swipe left anywhere on the home screen to open the full Spotify controller — buttons and cards included, since a horizontal drag pages while a tap still activates whatever it landed on. The two sliders are the exception: they own the horizontal axis, so dragging one sets volume or position instead of paging. Tapping the home screen's Spotify tile gets you there too, playing or idle. The controller owns every control: a large now-playing view, scrubbing, transport and volume, the next four queue items, and the device/playlist picker — the home tile itself shows only artwork, title and a progress bar. Swipe right to return home. There are deliberately no page indicators. The queue is fetched only while this screen is visible; the screensaver always resets the UI to the home screen.
+Swipe left anywhere on the home screen to open the full Spotify controller — buttons and cards included, since a horizontal drag pages while a tap still activates whatever it landed on. The two sliders are the exception: they own the horizontal axis, so dragging one sets volume or position instead of paging. Tapping the home screen's music bar gets you there too, playing or idle; the bar disappears entirely while Spotify is not connected. The controller owns every control: a large now-playing view, scrubbing with the remaining time, transport and volume, the next four queue items with their durations, and the device/playlist picker — the home bar itself shows only cover, title, artist · device and a progress line. Swipe right to return home. There are deliberately no page indicators. The queue is fetched only while this screen is visible; the screensaver always resets the UI to the home screen.
 
 ## Quick sheet, timers, night mode, power
 
@@ -25,8 +25,8 @@ Swipe **up** anywhere (or tap the grip at the bottom edge) to open the quick
 sheet. It holds the countdown timers (presets from 1 min to 1 h, up to three at
 once), the watch-face picker, the night-mode switch and the two power actions.
 
-- **Timer** — a running timer shows as a chip in the hero's top-right corner and
-  as a line on the screensaver. When it ends the panel turns into a full-screen
+- **Timer** — a running timer shows as a chip in the status rail above the
+  agenda and as a line on the screensaver. When it ends the panel turns into a full-screen
   alarm with *Stopp* and *+1 Min*; it is purely visual (no speaker) and gives up
   after ten minutes if nobody is home. Timers survive backend and browser
   restarts (`DashboardState.timers`).

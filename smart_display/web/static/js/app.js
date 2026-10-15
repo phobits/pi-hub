@@ -698,15 +698,17 @@
     analogMinute: document.getElementById("analog-hand-minute"),
     analogSecond: document.getElementById("analog-hand-second"),
     weatherLocation: document.getElementById("weather-location"),
-    weatherStatus: document.getElementById("weather-status"),
+    weatherFeels: document.getElementById("weather-feels"),
+    weatherStamp: document.getElementById("weather-stamp"),
     weatherTemperature: document.getElementById("weather-temperature"),
     weatherIcon: document.getElementById("weather-icon"),
     weatherCondition: document.getElementById("weather-condition"),
-    weatherSecondary: document.getElementById("weather-secondary"),
     weatherForecast: document.getElementById("weather-forecast"),
-    calendarStatus: document.getElementById("calendar-status"),
     calendarList: document.getElementById("calendar-list"),
     cardsColumn: document.getElementById("cards-column"),
+    // Status rail: "Offline · Stand HH:MM" when a network provider is behind.
+    statusNote: document.getElementById("status-note"),
+    statusDot: document.getElementById("status-dot"),
     // Home tile is display-only — it has no status pill, no device badge, no
     // transport and no volume. Every one of those lives on the Spotify screen.
     spotifyCard: document.getElementById("spotify-card"),
@@ -716,7 +718,6 @@
     spotifyTilePlayIcon: document.getElementById("spotify-tile-play-icon"),
     spotifyProgressFill: document.getElementById("spotify-progress-fill"),
     spotifyDetail: document.getElementById("spotify-detail"),
-    spotifyDetailStatus: document.getElementById("spotify-detail-status"),
     spotifyDetailArtwork: document.getElementById("spotify-detail-artwork"),
     spotifyDetailTrack: document.getElementById("spotify-detail-track"),
     spotifyDetailArtist: document.getElementById("spotify-detail-artist"),
@@ -731,6 +732,7 @@
     spotifyDetailNext: document.getElementById("spotify-detail-next"),
     spotifyDetailNextIcon: document.getElementById("spotify-detail-next-icon"),
     spotifyDetailVolume: document.getElementById("spotify-detail-volume"),
+    spotifyDetailVolumeIcon: document.getElementById("spotify-detail-volume-icon"),
     spotifyDetailSeek: document.getElementById("spotify-detail-seek"),
     spotifyDetailProgressElapsed: document.getElementById("spotify-detail-progress-elapsed"),
     spotifyDetailProgressTotal: document.getElementById("spotify-detail-progress-total"),
@@ -827,7 +829,7 @@
     const homeVisible = activeScreen === "home";
     const detailVisible = activeScreen === "spotify";
     if (!spotifyProgress) {
-      // The bar's visibility belongs to `.is-spotify-active` in CSS. Writing an
+      // The bar's visibility belongs to `[data-music]` in CSS. Writing an
       // inline display here would outrank that rule and silently pin it, keyed
       // on a different condition than the class it fights with.
       if (nodes.spotifyProgressFill && homeVisible) {
@@ -838,7 +840,7 @@
         nodes.spotifyDetailSeek.value = "0";
         nodes.spotifyDetailSeek.style.setProperty("--seek-percent", "0%");
         nodes.spotifyDetailProgressElapsed.textContent = "0:00";
-        nodes.spotifyDetailProgressTotal.textContent = "0:00";
+        nodes.spotifyDetailProgressTotal.textContent = "−0:00";
       }
       return;
     }
@@ -857,7 +859,9 @@
         `${(ratio * 100).toFixed(2)}%`,
       );
       nodes.spotifyDetailProgressElapsed.textContent = formatClockMs(pos);
-      nodes.spotifyDetailProgressTotal.textContent = formatClockMs(durationMs);
+      // Remaining, not total: on a panel the useful question is "how long
+      // until the next track", and the total is one glance away in the queue.
+      nodes.spotifyDetailProgressTotal.textContent = `−${formatClockMs(durationMs - pos)}`;
     }
   }
 
@@ -1004,6 +1008,8 @@
       '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="9" width="18" height="12" rx="2"></rect><path d="M12 25h8"></path></svg>',
     timer:
       '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="16" cy="18" r="10"></circle><path d="M16 12v6l4 2"></path><path d="M13 4h6"></path><path d="M16 4v4"></path></svg>',
+    volume:
+      '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7l-6 5H5v8h4l6 5z"></path><path d="M20 12a5.5 5.5 0 0 1 0 8"></path><path d="M23.5 8.5a10 10 0 0 1 0 15"></path></svg>',
   };
 
   function weatherIconName(conditionCode) {
@@ -1067,12 +1073,13 @@
       const part = dateParts.find((p) => p.type === type);
       return part ? part.value : "";
     };
-    const dateLabel = `${datePart("weekday")} · ${datePart("day")}. ${datePart("month")}`;
+    const dateLabel = `${datePart("weekday")}, ${datePart("day")}. ${datePart("month")}`;
     nodes.date.textContent = dateLabel;
     // Ticket #2: the photo/night overlay is a text clock — one write a minute.
     nodes.screensaverDate.textContent = dateLabel;
     nodes.screensaverTime.textContent = CLOCK_TIME_FMT.format(now);
     applyNight(false);
+    refreshCalendarMinute();
     if (screensaverActive) {
       updateScreensaverFlip(false);
       return;
@@ -1099,108 +1106,222 @@
     }, delay);
   }
 
-  function setStatus(node, snapshot) {
-    const status = snapshot && snapshot.status ? snapshot.status : "empty";
-    const labels = {
-      ok: "Live",
-      stale: "Cache",
-      error: "Fehler",
-      empty: "Leer",
-    };
-    node.dataset.status = status;
-    node.textContent = labels[status] || "Leer";
-    node.classList.toggle("is-hidden", status === "ok");
-    node.setAttribute("aria-hidden", status === "ok" ? "true" : "false");
+  // "HH:MM" in the panel's zone for a provider's updated_at, or "" when the
+  // snapshot has never been good. Used by every "Stand HH:MM" caption.
+  function formatStamp(isoString) {
+    if (typeof isoString !== "string" || !isoString) {
+      return "";
+    }
+    const ms = Date.parse(isoString);
+    if (!Number.isFinite(ms)) {
+      return "";
+    }
+    return CLOCK_TIME_FMT.format(new Date(ms));
+  }
+
+  function isBehind(snapshot) {
+    const status = snapshot && snapshot.status;
+    return status === "stale" || status === "error";
+  }
+
+  // Status rail (top of the right column). One line, only when a network
+  // provider is behind: "Offline · Stand HH:MM" with the oldest known-good
+  // time among them. Spotify reports in its own bar, not here.
+  function renderStatusRail() {
+    const behind = [state.weather, state.calendar]
+      .map((section) => (section && section.snapshot) || {})
+      .filter(isBehind);
+    const hidden = behind.length === 0;
+    nodes.statusNote.classList.toggle("is-hidden", hidden);
+    nodes.statusDot.classList.toggle("is-hidden", hidden);
+    if (hidden) {
+      return;
+    }
+    const stamps = behind
+      .map((snapshot) => Date.parse(snapshot.updated_at || ""))
+      .filter((ms) => Number.isFinite(ms));
+    const oldest = stamps.length ? Math.min(...stamps) : null;
+    nodes.statusNote.textContent =
+      oldest === null ? "Offline" : `Offline · Stand ${CLOCK_TIME_FMT.format(new Date(oldest))}`;
   }
 
   function renderWeather(weather) {
     const snapshot = weather.snapshot || {};
-    setStatus(nodes.weatherStatus, snapshot);
-    nodes.weatherLocation.textContent = `Wetter ${weather.location_label || "Zuhause"}`;
-    if (typeof weather.temperature_c === "number") {
-      nodes.weatherTemperature.textContent = `${Math.round(weather.temperature_c)}°`;
+    const hasTemperature = typeof weather.temperature_c === "number";
+    nodes.weatherTemperature.textContent = hasTemperature
+      ? `${Math.round(weather.temperature_c)}°`
+      : "–";
+    setIcon(nodes.weatherIcon, hasTemperature ? weatherIconName(weather.condition_code) : "");
+    if (weather.condition) {
+      nodes.weatherCondition.textContent = weather.condition;
+    } else if (snapshot.status === "empty" || !snapshot.status) {
+      nodes.weatherCondition.textContent = "Wetterdaten werden geladen.";
     } else {
-      nodes.weatherTemperature.textContent = "--";
+      nodes.weatherCondition.textContent = "Wetter nicht verfügbar";
     }
-    setIcon(nodes.weatherIcon, weatherIconName(weather.condition_code));
-    nodes.weatherCondition.textContent =
-      weather.condition || snapshot.error_message || "Wetterdaten werden geladen.";
-
-    if (typeof weather.apparent_temperature_c === "number") {
-      nodes.weatherSecondary.textContent =
-        `Gefühlt ${Math.round(weather.apparent_temperature_c)}°`;
-    } else if (snapshot.error_message) {
-      nodes.weatherSecondary.textContent = snapshot.error_message;
-    } else {
-      nodes.weatherSecondary.textContent = "";
-    }
+    nodes.weatherFeels.textContent =
+      typeof weather.apparent_temperature_c === "number"
+        ? `Gefühlt ${Math.round(weather.apparent_temperature_c)}°`
+        : "";
+    nodes.weatherLocation.textContent = weather.location_label || "";
+    // Age instead of a badge: the reader wants to know how old "14°" is.
+    const stamp = isBehind(snapshot) ? formatStamp(snapshot.updated_at) : "";
+    nodes.weatherStamp.textContent = stamp ? `Stand ${stamp}` : "";
 
     // Ticket #2: screensaver overlay gets temperature + condition, nothing else.
-    const screensaverWeather =
-      typeof weather.temperature_c === "number"
-        ? `${Math.round(weather.temperature_c)}°${weather.condition ? ` · ${weather.condition}` : ""}`
-        : "";
+    const screensaverWeather = hasTemperature
+      ? `${Math.round(weather.temperature_c)}°${weather.condition ? ` · ${weather.condition}` : ""}`
+      : "";
     nodes.screensaverWeather.textContent = screensaverWeather;
     nodes.screensaverWeatherSep.classList.toggle("is-hidden", screensaverWeather === "");
 
-    nodes.weatherForecast.innerHTML = "";
     const forecastItems = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 3) : [];
     nodes.weatherForecast.classList.toggle("is-empty", forecastItems.length === 0);
-
+    const fragment = document.createDocumentFragment();
     forecastItems.forEach((item) => {
-      const card = document.createElement("div");
-      card.className = "forecast-chip";
-
-      const top = document.createElement("div");
-      top.className = "forecast-chip__top";
-
       const day = document.createElement("div");
-      day.className = "forecast-chip__day";
-      day.textContent = item.day_label || "Tag";
+      day.className = "weather__day";
+
+      const name = document.createElement("div");
+      name.className = "weather__day-name";
+      name.textContent = item.day_label || "Tag";
 
       const icon = document.createElement("div");
-      icon.className = "forecast-chip__icon";
+      icon.className = "weather__day-icon";
       setIcon(icon, weatherIconName(item.condition_code));
 
       const temp = document.createElement("div");
-      temp.className = "forecast-chip__temp";
-      const max = typeof item.temperature_max_c === "number" ? `${Math.round(item.temperature_max_c)}°` : "--";
-      temp.textContent = max;
-
+      temp.className = "weather__day-temp";
+      temp.textContent =
+        typeof item.temperature_max_c === "number" ? `${Math.round(item.temperature_max_c)}°` : "--";
       if (typeof item.temperature_min_c === "number") {
         const min = document.createElement("span");
-        min.className = "forecast-chip__temp-min";
+        min.className = "weather__day-min";
         min.textContent = `${Math.round(item.temperature_min_c)}°`;
         temp.appendChild(min);
       }
 
-      top.append(day, icon);
-      card.append(top, temp);
-      nodes.weatherForecast.appendChild(card);
+      day.append(name, icon, temp);
+      fragment.appendChild(day);
     });
+    nodes.weatherForecast.replaceChildren(fragment);
   }
 
-  function createCalendarRow(item) {
+  function createCalendarRow(entry) {
     const row = document.createElement("li");
-    row.className = "calendar-item";
+    row.className = entry.past ? "agenda__item is-past" : "agenda__item";
 
     const time = document.createElement("div");
-    time.className = "calendar-item__time";
-    time.textContent = item.time_label;
+    time.className = "agenda__time";
+    time.textContent = entry.item.time_label;
 
     const title = document.createElement("div");
-    title.className = "calendar-item__title";
-    title.textContent = item.title;
+    title.className = "agenda__title";
+    title.textContent = entry.item.title;
 
     row.append(time, title);
     return row;
   }
 
+  // The next upcoming event: taller, on a surface, with the relative time
+  // ("in 48 Min" / "jetzt") on the right. Counts as two rows in the budget.
+  function createCalendarNextRow(entry, relativeLabel) {
+    const row = document.createElement("li");
+    row.className = "agenda__next";
+
+    const head = document.createElement("div");
+    head.className = "agenda__next-head";
+    const time = document.createElement("span");
+    time.textContent = entry.item.time_label;
+    const rel = document.createElement("span");
+    rel.className = "agenda__next-rel";
+    rel.textContent = relativeLabel;
+    head.append(time, rel);
+
+    const title = document.createElement("div");
+    title.className = "agenda__next-title";
+    title.textContent = entry.item.title;
+
+    row.append(head, title);
+    return row;
+  }
+
+  // "Heute · Donnerstag" → <b>Heute</b> · Donnerstag. Plain weekday labels
+  // (the day after tomorrow and later) render as one bold word.
   function createCalendarSectionLabel(label) {
     const sectionLabel = document.createElement("li");
-    sectionLabel.className = "calendar-section-label";
-    sectionLabel.textContent = label;
+    sectionLabel.className = "agenda__section";
+    const parts = label.split(" · ");
+    const strong = document.createElement("b");
+    strong.textContent = parts[0];
+    sectionLabel.appendChild(strong);
+    if (parts.length > 1) {
+      const rest = document.createElement("span");
+      rest.textContent = `· ${parts.slice(1).join(" · ")}`;
+      sectionLabel.appendChild(rest);
+    }
     return sectionLabel;
+  }
+
+  function createCalendarEmpty(title, subtitle) {
+    const empty = document.createElement("li");
+    empty.className = "agenda__empty";
+    empty.textContent = title;
+    if (subtitle) {
+      const sub = document.createElement("div");
+      sub.className = "agenda__empty-sub";
+      sub.textContent = subtitle;
+      empty.appendChild(sub);
+    }
+    return empty;
+  }
+
+  function parseIsoMs(value) {
+    if (typeof value !== "string" || !value) {
+      return null;
+    }
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  // Walk the sections once and decide, per item, whether it is over and
+  // which one is "next". All-day items are never past and never "next" — a
+  // delivery window has no moment to count down to.
+  function classifyCalendar(sections, nowMs) {
+    let nextKey = null;
+    const entries = sections.map((section, sectionIdx) =>
+      section.items.map((item, itemIdx) => {
+        const startMs = parseIsoMs(item.starts_at);
+        const endMs = parseIsoMs(item.ends_at);
+        let past = false;
+        if (!item.all_day) {
+          if (endMs !== null) {
+            past = endMs <= nowMs;
+          } else if (startMs !== null) {
+            past = startMs + 60 * 60 * 1000 <= nowMs;
+          }
+        }
+        const key = `${sectionIdx}:${itemIdx}`;
+        if (nextKey === null && !past && !item.all_day && startMs !== null) {
+          nextKey = key;
+        }
+        return { item, key, startMs, endMs, past };
+      }),
+    );
+    return { entries, nextKey };
+  }
+
+  // "jetzt" while it runs, "in N Min" up to an hour out, otherwise nothing —
+  // beyond an hour the clock time itself says more than "in 3 Std 12 Min".
+  function relativeLabelFor(entry, nowMs) {
+    if (!entry || entry.startMs === null) {
+      return "";
+    }
+    if (entry.startMs <= nowMs) {
+      return "jetzt";
+    }
+    const minutes = Math.ceil((entry.startMs - nowMs) / 60_000);
+    return minutes <= 60 ? `in ${minutes} Min` : "";
   }
 
   function todayIsoInZone() {
@@ -1272,17 +1393,20 @@
 
   // Plan B7: port of smart_display/calendar_layout.compute_row_budget.
   // Keep in sync — Python is the source of truth, JS is a 1:1 mirror.
-  function computeRowBudget(sectionItemCounts, maxRows, sectionHasLabel) {
+  function computeRowBudget(sectionItemCounts, maxRows, sectionHasLabel, sectionExtraRows) {
     const n = sectionItemCounts.length;
     if (n === 0 || maxRows <= 0) {
       return new Array(n).fill(0);
     }
+    const extras = Array.isArray(sectionExtraRows)
+      ? sectionExtraRows.map((x) => Math.max(0, x | 0))
+      : new Array(n).fill(0);
     const allocated = sectionItemCounts.map((c) => Math.max(0, c | 0));
     const totalRows = () => {
       let total = 0;
       for (let i = 0; i < n; i += 1) {
         if (allocated[i] > 0) {
-          total += allocated[i];
+          total += allocated[i] + extras[i];
           if (sectionHasLabel[i]) {
             total += 1;
           }
@@ -1313,42 +1437,82 @@
   }
 
   let calendarZeroHeightWarned = false;
+  // What the minute tick compares against: which item is "next" and which
+  // are past (a change means re-render), and the relative label (a change
+  // means one text write).
+  let calendarPhaseKey = "";
+  let calendarRelativeLabel = "";
+
+  function calendarPhase(classified) {
+    const pastKeys = [];
+    classified.entries.forEach((entries) => {
+      entries.forEach((entry) => {
+        if (entry.past) pastKeys.push(entry.key);
+      });
+    });
+    return `${classified.nextKey || ""}|${pastKeys.join(",")}`;
+  }
+
+  function nextEntryOf(classified) {
+    for (const entries of classified.entries) {
+      for (const entry of entries) {
+        if (entry.key === classified.nextKey) return entry;
+      }
+    }
+    return null;
+  }
 
   function renderCalendar(calendar) {
     const snapshot = calendar.snapshot || {};
     const sections = normalizeCalendarSections(calendar);
     const todayIso = todayIsoInZone();
-    setStatus(nodes.calendarStatus, snapshot);
+    const nowMs = Date.now();
     // Measure before clearing. The grid row is a plain length today, but if it
     // ever becomes content-dependent again an emptied list collapses to 0 and the
     // zero-height fallback below silently renders every event into an
     // overflowing box — which is exactly what `fit-content(48%)` used to do.
     const availableHeight = nodes.calendarList.clientHeight;
     nodes.calendarList.innerHTML = "";
+    calendarPhaseKey = "";
+    calendarRelativeLabel = "";
 
     if (sections.length === 0) {
-      const empty = document.createElement("li");
-      empty.className = "calendar-empty";
-      empty.textContent =
-        snapshot.error_message ||
-        calendar.empty_message ||
-        "Keine Termine in den nächsten Tagen.";
-      nodes.calendarList.appendChild(empty);
+      const dayAfter = new Date(nowMs + 2 * 24 * 60 * 60 * 1000);
+      const subtitle =
+        snapshot.status === "empty" || !snapshot.status
+          ? ""
+          : `Auch morgen und ${WEEKDAY_FMT.format(dayAfter)} ist nichts eingetragen.`;
+      nodes.calendarList.appendChild(createCalendarEmpty("Keine Termine", subtitle));
       return;
     }
+
+    const classified = classifyCalendar(sections, nowMs);
+    const nextEntry = nextEntryOf(classified);
+    calendarPhaseKey = calendarPhase(classified);
+    calendarRelativeLabel = relativeLabelFor(nextEntry, nowMs);
+
+    // Per section: keep at most the most recent past item (dimmed, as context),
+    // drop older ones — they would only eat rows from what is still ahead.
+    const visible = classified.entries.map((entries) => {
+      const upcoming = entries.filter((entry) => !entry.past);
+      const past = entries.filter((entry) => entry.past);
+      return past.length ? [past[past.length - 1], ...upcoming] : upcoming;
+    });
 
     // Pre-compute per-section metadata in render order.
     const labels = sections.map((section) =>
       computeDayLabel(section.section_date, todayIso),
     );
     const sectionHasLabel = labels.map((label) => label.length > 0);
-    const sectionItemCounts = sections.map((section) => section.items.length);
+    const sectionItemCounts = visible.map((entries) => entries.length);
+    const sectionExtraRows = visible.map((entries) =>
+      entries.some((entry) => entry.key === classified.nextKey) ? 1 : 0,
+    );
 
     let allocated;
     if (availableHeight <= 0) {
-      // Plan B7: if the list hasn't been laid out yet we can't measure,
-      // so render everything instead of silently trimming. Warn once so
-      // the issue shows up in diagnostic logs on the Pi without spamming.
+      // If the list hasn't been laid out yet we can't measure, so render
+      // everything instead of silently trimming. Warn once.
       if (!calendarZeroHeightWarned) {
         calendarZeroHeightWarned = true;
         window.console.warn(
@@ -1357,39 +1521,29 @@
       }
       allocated = sectionItemCounts.slice();
     } else {
-      // Measure one representative row + one label against the live DOM
-      // so we pick up the actual CSS dimensions instead of hard-coding
-      // magic numbers that drift when the theme changes.
-      const measureRow = createCalendarRow({
-        title: "Messung",
-        time_label: "",
-      });
+      // Measure one representative row + one label against the live DOM so
+      // we pick up the actual CSS dimensions. The highlighted row is counted
+      // as one row plus one extra via the budget — it is just under two plain
+      // rows tall by design.
+      const measureRow = createCalendarRow({ item: { title: "Messung", time_label: "" }, past: false });
       const measureLabel = createCalendarSectionLabel("Messung");
       nodes.calendarList.appendChild(measureRow);
       nodes.calendarList.appendChild(measureLabel);
       const rowHeight = measureRow.offsetHeight || 1;
       const labelHeight = measureLabel.offsetHeight || rowHeight;
-      // Read the gap before the removals dirty style again — it piggybacks on
-      // the recalc the offsetHeight reads above already forced.
       const listGap =
         parseFloat(window.getComputedStyle(nodes.calendarList).rowGap) || 0;
       nodes.calendarList.removeChild(measureRow);
       nodes.calendarList.removeChild(measureLabel);
 
-      // Use the taller of the two as the uniform row unit so we never
-      // overshoot. With typical CSS the label is slightly larger. offsetHeight
-      // excludes the list's flex gap, so fold it in — n rows carry n−1 gaps,
-      // hence the matching gap added to the available height.
       const rowUnit = Math.max(rowHeight, labelHeight) + listGap;
       const maxRows = Math.max(
         1,
         Math.floor((availableHeight + listGap) / rowUnit),
       );
-      allocated = computeRowBudget(sectionItemCounts, maxRows, sectionHasLabel);
+      allocated = computeRowBudget(sectionItemCounts, maxRows, sectionHasLabel, sectionExtraRows);
     }
 
-    // Build everything into a fragment, append once — a single layout
-    // pass instead of one per appended row.
     const fragment = document.createDocumentFragment();
     let visibleRows = 0;
     for (let i = 0; i < sections.length; i += 1) {
@@ -1400,23 +1554,50 @@
       if (sectionHasLabel[i]) {
         fragment.appendChild(createCalendarSectionLabel(labels[i]));
       }
-      const items = sections[i].items.slice(0, count);
-      for (const item of items) {
-        fragment.appendChild(createCalendarRow(item));
+      // Trimming drops the dimmed past item before anything still ahead.
+      let shown = visible[i];
+      if (count < shown.length && shown[0].past) {
+        shown = shown.slice(1);
+      }
+      shown = shown.slice(0, count);
+      for (const entry of shown) {
+        if (entry.key === classified.nextKey) {
+          fragment.appendChild(createCalendarNextRow(entry, calendarRelativeLabel));
+        } else {
+          fragment.appendChild(createCalendarRow(entry));
+        }
         visibleRows += 1;
       }
     }
     nodes.calendarList.appendChild(fragment);
 
     if (visibleRows === 0) {
-      const empty = document.createElement("li");
-      empty.className = "calendar-empty";
-      empty.textContent =
-        snapshot.error_message ||
-        calendar.empty_message ||
-        "Keine Termine in den nächsten Tagen.";
       nodes.calendarList.innerHTML = "";
-      nodes.calendarList.appendChild(empty);
+      nodes.calendarList.appendChild(createCalendarEmpty("Keine Termine", ""));
+    }
+  }
+
+  // Minute tick: a cheap text write while nothing structural changed, a full
+  // re-render once an event ends or the next one changes.
+  function refreshCalendarMinute() {
+    if (!calendarPhaseKey) {
+      return;
+    }
+    const sections = normalizeCalendarSections(state.calendar || {});
+    const nowMs = Date.now();
+    const classified = classifyCalendar(sections, nowMs);
+    if (calendarPhase(classified) !== calendarPhaseKey) {
+      lastRenderedSectionKeys.calendar = "";
+      render(state);
+      return;
+    }
+    const label = relativeLabelFor(nextEntryOf(classified), nowMs);
+    if (label !== calendarRelativeLabel) {
+      calendarRelativeLabel = label;
+      const node = nodes.calendarList.querySelector(".agenda__next-rel");
+      if (node) {
+        node.textContent = label;
+      }
     }
   }
 
@@ -1425,9 +1606,10 @@
   }
 
   function setSpotifyVolumeUi(value) {
-    const text = value === null ? "" : `${value}%`;
+    const text = value === null ? "" : `${value} %`;
     spotifyVolumeSliders().forEach((slider) => {
       slider.value = String(value === null ? 0 : value);
+      slider.style.setProperty("--vol-percent", `${value === null ? 0 : value}%`);
     });
     nodes.spotifyDetailVolumeReadout.textContent = text;
   }
@@ -1448,14 +1630,24 @@
       spotify.duration_ms > 0 &&
       typeof spotify.progress_ms === "number",
     );
-    setStatus(nodes.spotifyDetailStatus, snapshot);
     nodes.spotifyDetail.classList.toggle("is-inactive", !showControls);
-    // Give Spotify the lion's share of the column (big artwork) only when there's
-    // a controllable session; idle keeps the calm calendar-fills layout so an
-    // empty tile never becomes a big blank box. This class also drives the whole
-    // home tile's state, so it is the single switch for both.
+    // The home bar has four shapes, chosen here and painted by CSS through
+    // data-music on the column: playing (96 px, cover + progress), idle (60 px,
+    // "Musik starten"), error (60 px, "Nicht erreichbar · zuletzt HH:MM") and
+    // hidden (not connected at all — the agenda takes the row). `stale` is one
+    // missed refresh and keeps whatever was showing; `error` is two or more.
+    let musicMode;
+    if (snapshot.status === "error") {
+      musicMode = "error";
+    } else if (showControls && spotify.track_title) {
+      musicMode = "playing";
+    } else if (spotify.connected) {
+      musicMode = "idle";
+    } else {
+      musicMode = "hidden";
+    }
     if (nodes.cardsColumn) {
-      nodes.cardsColumn.classList.toggle("is-spotify-active", showControls);
+      nodes.cardsColumn.dataset.music = musicMode;
     }
     // The picker trigger only makes sense while Spotify is connected. It lives on
     // the Spotify screen only — the home tile leads there instead.
@@ -1475,13 +1667,26 @@
     const trackLabel =
       spotify.track_title || spotify.empty_message || "Keine aktive Wiedergabe";
     const artistLabel =
-      spotify.artist_name || snapshot.error_message || "Spotify nicht verbunden.";
-    // The home tile doubles as the "start playing" entry point, so with nothing
-    // playing it invites instead of reporting. Errors still surface there: the
-    // artist line falls back to the snapshot's message.
-    nodes.spotifyTrack.textContent = spotify.track_title || "Musik starten";
-    nodes.spotifyArtist.textContent =
-      spotify.artist_name || snapshot.error_message || "";
+      spotify.artist_name ||
+      (musicMode === "error" ? "Spotify nicht erreichbar." : "Spotify nicht verbunden.");
+    // The home bar doubles as the "start playing" entry point, so with nothing
+    // playing it invites instead of reporting. An outage says how old the last
+    // good state is rather than quoting the HTTP error.
+    if (musicMode === "error") {
+      const stamp = formatStamp(snapshot.updated_at);
+      nodes.spotifyTrack.textContent = "Spotify";
+      nodes.spotifyArtist.textContent = stamp
+        ? `Nicht erreichbar · zuletzt ${stamp}`
+        : "Nicht erreichbar";
+    } else if (musicMode === "playing") {
+      nodes.spotifyTrack.textContent = spotify.track_title;
+      nodes.spotifyArtist.textContent = [spotify.artist_name, spotify.device_name]
+        .filter(Boolean)
+        .join(" · ");
+    } else {
+      nodes.spotifyTrack.textContent = "Musik starten";
+      nodes.spotifyArtist.textContent = "";
+    }
     nodes.spotifyDetailTrack.textContent = trackLabel;
     nodes.spotifyDetailArtist.textContent = artistLabel;
     nodes.spotifyDetailAlbum.textContent = spotify.album_name || "";
@@ -1547,12 +1752,10 @@
     setSpotifyVolumeUi(incoming);
   }
 
-  // Whether the cards column is in its Spotify-heavy layout. Read before and
-  // after renderSpotify so render() can tell when the calendar row was resized.
+  // The music bar's current shape. Read before and after renderSpotify so
+  // render() can tell when the agenda row was resized and must re-budget.
   function spotifyColumnLayoutKey() {
-    return nodes.cardsColumn
-      ? nodes.cardsColumn.classList.contains("is-spotify-active")
-      : null;
+    return nodes.cardsColumn ? nodes.cardsColumn.dataset.music || "" : null;
   }
 
   function sectionRenderKey(section, omittedKeys = null) {
@@ -1591,7 +1794,7 @@
       const spotifyLayoutBefore = spotifyColumnLayoutKey();
       renderSpotify(state.spotify || {});
       lastRenderedSectionKeys.spotify = keys.spotify;
-      // renderSpotify toggles `is-spotify-active`, which resizes the calendar's
+      // renderSpotify sets `data-music`, which resizes the calendar's
       // grid row. renderCalendar budgets its visible rows from the live
       // clientHeight, so it has to re-measure or it silently clips (or
       // under-fills) against the previous height.
@@ -1603,6 +1806,7 @@
       renderCalendar(state.calendar || {});
       lastRenderedSectionKeys.calendar = keys.calendar;
     }
+    renderStatusRail();
     // Ticket #3: timers are keyed on identity + ends_at, not on the server's
     // remaining_seconds, which changes every poll by definition.
     const timerKey = sectionRenderKey(
@@ -1727,7 +1931,7 @@
       return;
     }
     const status = result && result.status ? result.status : "error";
-    nodes.spotifyDetailQueueStatus.textContent = status === "stale" ? "Cache" : "";
+    nodes.spotifyDetailQueueStatus.textContent = status === "stale" ? "Nicht aktuell" : "";
     const items = result && Array.isArray(result.items)
       ? result.items.slice(0, 4)
       : [];
@@ -1765,6 +1969,12 @@
       subtitle.textContent = item.subtitle || (item.kind === "episode" ? "Podcast" : "Spotify");
       copy.append(title, subtitle);
       row.append(art, copy);
+      if (typeof item.duration_ms === "number" && item.duration_ms > 0) {
+        const duration = document.createElement("div");
+        duration.className = "spotify-detail__queue-duration";
+        duration.textContent = formatClockMs(item.duration_ms);
+        row.appendChild(duration);
+      }
       fragment.appendChild(row);
     });
     container.replaceChildren(fragment);
@@ -2010,7 +2220,7 @@
       `${(ratio * 100).toFixed(2)}%`,
     );
     nodes.spotifyDetailProgressElapsed.textContent = formatClockMs(value);
-    nodes.spotifyDetailProgressTotal.textContent = formatClockMs(duration);
+    nodes.spotifyDetailProgressTotal.textContent = `−${formatClockMs(duration - value)}`;
   }
 
   async function commitSeek(rawValue) {
@@ -3047,6 +3257,7 @@
 
     setIcon(nodes.spotifyTilePlayIcon, "play");
     setIcon(nodes.spotifyDetailOpenPickerIcon, "device");
+    setIcon(nodes.spotifyDetailVolumeIcon, "volume");
     if (nodes.spotifyDetailOpenPicker) {
       nodes.spotifyDetailOpenPicker.addEventListener("click", openSpotifyPicker);
     }

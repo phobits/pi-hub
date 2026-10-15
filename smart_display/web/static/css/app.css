@@ -1,32 +1,71 @@
+/* =============================================================================
+   Smart Display — Homescreen v2 ("Glance")
+
+   One fixed canvas: 1024×600, 1 vw = 10.24 px, always. Every size in this file
+   is a plain pixel value for that panel — no media queries, no clamp(), no
+   second ladder to keep in sync. If the panel ever changes, the numbers change
+   here, once.
+
+   Engine on the device is WebKit (Cog/WPE). No :has(), no backdrop-filter, no
+   container queries. Headless Chrome screenshots are a development aid only.
+   ========================================================================== */
+
 :root {
-  --bg: #0f1216;
-  --bg-soft: #161b22;
-  --panel: rgba(20, 24, 31, 0.96);
-  --panel-strong: rgba(24, 29, 37, 0.94);
-  --line: rgba(255, 255, 255, 0.08);
-  --text: #f3f5f7;
-  --muted: #a6b0bc;
-  --accent: #d8e7ff;
-  --accent-strong: #ffffff;
-  --ok: #b6d89f;
-  --warn: #f5d38c;
-  --error: #f2a7a7;
-  --shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
-  --radius-xl: 28px;
-  --radius-lg: 22px;
-  --radius-md: 16px;
+  --bg: #07090c;
+  --ink: #f4f6f8;
+  --ink-2: rgba(244, 246, 248, 0.64);
+  --ink-3: rgba(244, 246, 248, 0.4);
+  --hair: rgba(255, 255, 255, 0.09);
+  --surface: rgba(255, 255, 255, 0.055);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  --surface-3: rgba(255, 255, 255, 0.14);
+  --amber: #f3c46b;
+  --amber-soft: rgba(243, 196, 107, 0.14);
+  --amber-line: rgba(243, 196, 107, 0.35);
+  --danger-line: rgba(242, 167, 167, 0.3);
+  --lcd: #ffb25b;
+  --second-hand: #ff8a5b;
+  --flip-card: linear-gradient(180deg, #1c222b 0%, #12171e 100%);
+  --flip-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
+  --art-fallback: linear-gradient(145deg, #4c5a6b, #1b2129);
+  --glow: 0 0 16px rgba(216, 231, 255, 0.32);
+  --r-lg: 22px;
+  --r-md: 16px;
+  --r-sm: 12px;
   --transition: 180ms ease;
+  /* Display sizes get Inter Display when the Pi has it (fonts-inter ≥ 4.0),
+     plain Inter otherwise — same metrics family, slightly wider glyphs. */
+  --font: "Inter", "Noto Sans Display", "Noto Sans", sans-serif;
+  --font-display: "Inter Display", "Inter", "Noto Sans Display", sans-serif;
+}
+
+/* Ticket #2 — night palette. Colours only, nothing moves. */
+body[data-night="true"] {
+  --bg: #000;
+  --ink: #aeb5bd;
+  --ink-2: rgba(174, 181, 189, 0.58);
+  --ink-3: rgba(174, 181, 189, 0.36);
+  --hair: rgba(255, 255, 255, 0.06);
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-2: rgba(255, 255, 255, 0.07);
+  --surface-3: rgba(255, 255, 255, 0.1);
+  --amber: #b89654;
+  --amber-soft: rgba(184, 150, 84, 0.12);
+  --amber-line: rgba(184, 150, 84, 0.3);
+  --lcd: #a7772f;
+  --second-hand: #a85a3c;
+  --flip-card: #0c0f13;
+  --flip-shadow: none;
+  --art-fallback: linear-gradient(145deg, #262c34, #0f1217);
+  --glow: none;
 }
 
 * {
   box-sizing: border-box;
 }
 
-/* Form controls do not inherit the document font — a <button> falls back to the
-   UA control font, which on the Pi resolves to a family that ships Regular and
-   Bold only. Every weight below 700 would snap back to bold inside buttons,
-   which is the whole problem the Inter switch exists to fix. Set it once here
-   rather than re-declaring the stack per button rule. */
+/* Form controls do not inherit the document font — a <button> falls back to
+   the UA control font, which on the Pi ships Regular and Bold only. */
 button,
 input,
 select,
@@ -39,88 +78,138 @@ body {
   margin: 0;
   width: 100%;
   height: 100vh;
-  min-height: 100vh;
   overflow: hidden;
-  background:
-    radial-gradient(circle at top left, rgba(87, 122, 168, 0.18), transparent 36%),
-    radial-gradient(circle at bottom right, rgba(173, 142, 109, 0.14), transparent 28%),
-    linear-gradient(145deg, #0b0e12 0%, #11161d 45%, #171d24 100%);
-  color: var(--text);
-  /* Inter (apt: fonts-inter) over Noto Sans Display for two reasons on this
-     panel: it ships real Medium/SemiBold cuts, and Noto Sans Display ships only
-     Regular and Bold — so every `font-weight: 600` here used to render as 700,
-     which is why the UI read as uniformly heavy. Second, its larger x-height and
-     open apertures survive the low pixel density at 1–2 m better than a display
-     face does. Noto stays as the fallback and still covers glyphs Inter lacks. */
-  font-family: "Inter", "Noto Sans Display", "Noto Sans", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-feature-settings: "tnum" 1, "cv11" 1;
+  -webkit-font-smoothing: antialiased;
   touch-action: manipulation;
 }
 
 body {
+  position: relative;
   display: flex;
-  padding: 24px;
 }
 
-.dashboard-shell {
-  display: grid;
+/* Ambient tint: two static radial gradients. Painted once, never animated. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 8% -10%, rgba(96, 130, 180, 0.16), transparent 60%),
+    radial-gradient(700px 420px at 100% 110%, rgba(180, 140, 100, 0.1), transparent 60%);
+}
+
+body[data-night="true"]::before {
+  display: none;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
+/* =============================================================================
+   Two-screen shell
+   ========================================================================== */
+.screen-stage {
+  position: relative;
   flex: 1 1 auto;
-  /* Uhr + Wetter sind die Kernfunktion aus 1–2 m, die Termine bestehen aus
-     Uhrzeit und kurzem Titel. Deshalb links 2/3, rechts 1/3 — nicht umgekehrt. */
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 18px;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* pan-y: the horizontal axis is the swipe handler's, vertical stays with the
+     browser so the agenda list remains scrollable by touch. */
+  touch-action: pan-y;
+}
+
+.display-screen {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease,
+    visibility 0s linear 200ms;
+}
+
+.display-screen--home {
+  transform: translateX(-28px);
+}
+
+.display-screen--spotify {
+  transform: translateX(28px);
+}
+
+.display-screen.is-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(0);
+  transition-delay: 0s;
+}
+
+.screen-stage.is-animating .display-screen {
+  will-change: transform, opacity;
+}
+
+.screen-stage.is-instant .display-screen {
+  transition: none;
+}
+
+/* =============================================================================
+   Home — grid
+   ========================================================================== */
+.home {
+  position: relative;
+  display: grid;
+  grid-template-columns: 612px 328px;
+  column-gap: 32px;
+  width: 100%;
+  height: 100%;
+  padding: 26px 32px 22px;
+}
+
+/* Hairline between the columns. */
+.home::after {
+  content: "";
+  position: absolute;
+  top: 44px;
+  bottom: 44px;
+  left: 660px; /* 32 + 612 + 16 */
+  width: 1px;
+  background: var(--hair);
+}
+
+/* ---- Left: clock stage + date + weather --------------------------------- */
+.glance {
+  display: grid;
+  grid-template-rows: 300px 40px minmax(0, 1fr);
   min-height: 0;
 }
 
-.hero-panel,
-.card {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  box-shadow: var(--shadow);
-}
-
-/* Same chrome as a card, minus the background: .spotify-tile__art covers the
-   tile edge to edge in both states, so a panel background underneath it would
-   never paint. */
-.spotify-tile {
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-}
-
-.hero-panel {
-  border-radius: 36px;
-  overflow: hidden;
-  position: relative;
-}
-
-.hero-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(160deg, rgba(255, 255, 255, 0.06), transparent 50%),
-    radial-gradient(circle at 15% 20%, rgba(216, 231, 255, 0.18), transparent 26%);
-  pointer-events: none;
-}
-
-.hero-panel__inner {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  height: 100%;
-  padding: 40px 42px;
-}
-
-.eyebrow,
-.card__eyebrow {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+/* Square faces are height-bound; they get a taller stage and the compact
+   one-line weather block below. Hooked on body[data-watch-face], so the swap
+   is pure CSS when the face cycles. */
+body[data-watch-face="qlocktwo"] .glance,
+body[data-watch-face="qlocktwo-ooe"] .glance,
+body[data-watch-face="analog"] .glance {
+  grid-template-rows: 376px 40px minmax(0, 1fr);
 }
 
 .watch-face {
@@ -130,10 +219,12 @@ body {
   color: inherit;
   padding: 0;
   margin: 0;
-  text-align: left;
-  cursor: pointer;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
+  min-height: 0;
+  cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -152,55 +243,36 @@ body {
   display: none;
 }
 
-body[data-watch-face="flip"] .watch-face__flip {
+body[data-watch-face="flip"] .watch-face__flip,
+body[data-watch-face="lcd"] .watch-face__lcd,
+body[data-watch-face="pulse"] .watch-face__pulse,
+body[data-watch-face="analog"] .watch-face__analog {
   display: block;
 }
 
-body[data-watch-face="lcd"] .watch-face__lcd {
-  display: block;
-}
-
-body[data-watch-face="pulse"] .watch-face__pulse {
-  display: block;
-}
-
-body[data-watch-face="qlocktwo"] .watch-face__qlocktwo {
-  display: grid;
-}
-
+body[data-watch-face="qlocktwo"] .watch-face__qlocktwo,
 body[data-watch-face="qlocktwo-ooe"] .watch-face__qlocktwo-ooe {
   display: grid;
 }
 
-body[data-watch-face="analog"] .watch-face__analog {
-  display: flex;
-}
-
-/* --- Flip clock ----------------------------------------------------------- */
-.watch-face__flip {
-  margin-top: 4px;
-}
-
+/* ---- Flip ---------------------------------------------------------------- */
 .flip-clock {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  width: min(100%, 440px);
-  margin: 0 auto;
-  /* Scaled with the kiosk digit height — 600px over a 204px tall card made the
-     flip read as a fold rather than a rotation. */
+  gap: 10px;
   perspective: 1100px;
 }
 
 .flip-digit {
   position: relative;
   flex: 0 0 auto;
-  width: clamp(68px, 9.2vw, 92px);
-  height: clamp(106px, 14.6vw, 148px);
-  border-radius: 12px;
-  background: transparent;
-  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.35));
+  width: 122px;
+  height: 200px;
+  border-radius: 14px;
+  /* box-shadow on the card, not filter: drop-shadow on the digit — a filter
+     is a separate raster layer per digit, re-rendered on every flip. */
+  box-shadow: var(--flip-shadow);
 }
 
 .flip-digit__half,
@@ -210,7 +282,7 @@ body[data-watch-face="analog"] .watch-face__analog {
   right: 0;
   height: 50%;
   overflow: hidden;
-  background: linear-gradient(180deg, #1d232c 0%, #141921 100%);
+  background: var(--flip-card);
   backface-visibility: hidden;
 }
 
@@ -221,15 +293,15 @@ body[data-watch-face="analog"] .watch-face__analog {
 .flip-digit__half--top,
 .flip-digit__flap--top {
   top: 0;
-  border-radius: 12px 12px 0 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 14px 14px 0 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.55);
   transform-origin: center bottom;
 }
 
 .flip-digit__half--bottom,
 .flip-digit__flap--bottom {
   bottom: 0;
-  border-radius: 0 0 12px 12px;
+  border-radius: 0 0 14px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
   transform-origin: center top;
 }
@@ -238,18 +310,19 @@ body[data-watch-face="analog"] .watch-face__analog {
   position: absolute;
   left: 0;
   right: 0;
-  font-weight: 700;
-  line-height: 1;
-  text-align: center;
-  color: var(--accent-strong);
-  letter-spacing: -0.04em;
-  font-size: clamp(88px, 12vw, 118px);
-  /* The digit spans the full card height inside a half-height clip, so the
-     top-half shows the top of the glyph and the bottom-half shows the bottom. */
-  height: clamp(106px, 14.6vw, 148px);
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Spans the full card inside a half-height clip: the top half shows the top
+     of the glyph, the bottom half the bottom. Must equal .flip-digit height. */
+  height: 200px;
+  font-family: var(--font-display);
+  font-size: 168px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  text-align: center;
+  color: var(--ink);
 }
 
 .flip-digit__half--top .flip-digit__digit,
@@ -297,34 +370,24 @@ body[data-watch-face="analog"] .watch-face__analog {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: clamp(18px, 2.4vw, 28px);
-  padding: 0 4px;
+  gap: 30px;
+  padding: 0 6px;
 }
 
 .flip-clock__sep span {
   display: block;
-  width: clamp(8px, 1.1vw, 12px);
-  height: clamp(8px, 1.1vw, 12px);
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: rgba(216, 231, 255, 0.78);
+  background: var(--ink);
+  opacity: 0.78;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .flip-digit.is-flipping .flip-digit__flap--top,
-  .flip-digit.is-flipping .flip-digit__flap--bottom {
-    animation-duration: 1ms;
-  }
-}
-
-/* --- LCD / seven-segment -------------------------------------------------- */
-.watch-face__lcd {
-  margin-top: 4px;
-}
-
+/* ---- LCD / seven-segment ------------------------------------------------- */
 .lcd-clock {
   display: block;
-  width: min(100%, 440px);
-  height: auto;
+  width: 560px;
+  height: 224px;
   margin: 0 auto;
 }
 
@@ -333,130 +396,80 @@ body[data-watch-face="analog"] .watch-face__analog {
   transition: fill 220ms ease;
 }
 
-.lcd-seg.is-on {
-  fill: #ffb25b;
-  filter: drop-shadow(0 0 6px rgba(255, 178, 91, 0.4));
-}
-
+.lcd-seg.is-on,
 .lcd-colon circle {
-  fill: #ffb25b;
-  filter: drop-shadow(0 0 6px rgba(255, 178, 91, 0.4));
-  animation: lcd-colon-blink 1.2s ease-in-out infinite;
+  fill: var(--lcd);
 }
 
-@keyframes lcd-colon-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .lcd-colon circle { animation: none; }
-}
-
-/* --- Pulse / minimal digital --------------------------------------------- */
-.watch-face__pulse {
-  margin-top: 4px;
-}
-
+/* ---- Pulse / minimal digital -------------------------------------------- */
 .pulse-clock {
   display: flex;
   align-items: baseline;
   justify-content: center;
-  gap: 4px;
-  line-height: 0.94;
-  letter-spacing: -0.05em;
+  line-height: 1;
 }
 
 .pulse-clock__hm {
-  font-size: clamp(106px, 15vw, 156px);
-  font-weight: 700;
-  color: var(--accent-strong);
+  font-family: var(--font-display);
+  font-size: 236px;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 
 .pulse-clock__colon {
-  display: inline-block;
-  animation: pulse-colon-blink 1.1s ease-in-out infinite;
+  opacity: 0.55;
 }
 
-@keyframes pulse-colon-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pulse-clock__colon { animation: none; }
-}
-
+/* ---- QLOCKTWO ------------------------------------------------------------ */
 .watch-face__qlocktwo,
 .watch-face__qlocktwo-ooe {
+  width: 376px;
+  height: 376px;
   grid-template-rows: repeat(10, 1fr);
-  gap: 2px;
-  margin-top: 4px;
-  padding: 2px 0;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  font-size: 27px;
+  letter-spacing: 0.06em;
   line-height: 1;
-  color: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.14);
   user-select: none;
-  /* Lock the whole grid to a square — the real QLOCKTWO face is square,
-     and 10 rows × 11 cols look best when constrained to 1:1. */
-  aspect-ratio: 1 / 1;
-  width: min(100%, 440px);
-  margin-left: auto;
-  margin-right: auto;
 }
 
 .qlocktwo-row {
   display: grid;
   grid-template-columns: repeat(11, minmax(0, 1fr));
-  gap: 2px;
 }
 
 .qlocktwo-letter {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(20px, 3.2vw, 34px);
   transition: color 280ms ease, text-shadow 280ms ease;
 }
 
 .qlocktwo-letter.is-active {
-  color: var(--accent-strong);
-  text-shadow: 0 0 14px rgba(216, 231, 255, 0.35);
+  color: var(--ink);
+  text-shadow: var(--glow);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .qlocktwo-letter {
-    transition: none;
-  }
-}
-
-.watch-face__analog {
-  align-items: center;
-  justify-content: center;
-  margin-top: 4px;
-}
-
+/* ---- Analog -------------------------------------------------------------- */
 .analog-clock {
-  width: clamp(200px, 26vw, 280px);
-  height: clamp(200px, 26vw, 280px);
   display: block;
+  width: 360px;
+  height: 360px;
 }
 
 .analog-clock__face {
-  fill: rgba(255, 255, 255, 0.03);
-  stroke: rgba(255, 255, 255, 0.14);
-  stroke-width: 1.2;
+  fill: rgba(255, 255, 255, 0.025);
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 1;
 }
 
 .analog-clock__tick {
-  stroke: rgba(216, 231, 255, 0.55);
-  stroke-linecap: round;
-}
-
-.analog-clock__tick--hour {
+  stroke: rgba(216, 231, 255, 0.6);
   stroke-width: 3.2;
+  stroke-linecap: round;
 }
 
 .analog-clock__tick--minute {
@@ -465,12 +478,9 @@ body[data-watch-face="analog"] .watch-face__analog {
 }
 
 .analog-clock__hand {
-  stroke: var(--accent-strong);
+  stroke: var(--ink);
   stroke-linecap: round;
-  /* Rotation center sits inside the SVG transform attribute
-     ("rotate(N 100 100)") — a CSS transform-origin here would be
-     interpreted in client pixels and fight the SVG viewBox when the
-     clock is scaled via `width: clamp(...)`. */
+  /* Rotation centre sits inside the SVG transform ("rotate(N 100 100)"). */
   transition: transform 420ms cubic-bezier(0.3, 0.7, 0.25, 1);
 }
 
@@ -484,540 +494,658 @@ body[data-watch-face="analog"] .watch-face__analog {
 }
 
 .analog-clock__hand--second {
-  stroke: #ff8a5b;
+  stroke: var(--second-hand);
   stroke-width: 1.6;
-  stroke-opacity: 0.9;
-  /* Clean per-second tick — no interpolation, or the hand would drift
-     instead of stepping. */
+  /* Clean per-second step — no interpolation. */
   transition: none;
 }
 
 .analog-clock__pivot {
-  fill: var(--accent-strong);
-  stroke: rgba(15, 18, 22, 0.95);
+  fill: var(--ink);
+  stroke: #0b0d10;
   stroke-width: 1.4;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .analog-clock__hand {
-    transition: none;
-  }
+/* ---- Date line ----------------------------------------------------------- */
+.date-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  color: var(--ink-2);
 }
 
-.hero-date {
-  margin-top: 20px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
+.date-line__hint {
   font-size: 16px;
   font-weight: 500;
-  line-height: 1.1;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--amber);
 }
 
-/* Track the QLOCKTWO grid's width so the divider lines up under it. */
-body[data-watch-face="qlocktwo"] .hero-date,
-body[data-watch-face="qlocktwo-ooe"] .hero-date {
-  width: min(100%, 300px);
-  margin-left: auto;
-  margin-right: auto;
+/* ---- Weather ------------------------------------------------------------- */
+.weather {
+  display: grid;
+  align-content: end;
+  row-gap: 18px;
+  padding-top: 26px;
+  min-height: 0;
 }
 
-.hero-weather {
-  margin-top: 40px;
-  padding-top: 22px;
-  border-top: 1px solid var(--line);
-}
-
-.hero-weather__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-/* <h2>. Without an explicit weight the browser default (bold) wins, which is
-   what made the panel read heavy — there was no font-weight declaration to
-   notice. Same for every other heading in this file. */
-.hero-weather__title {
-  margin: 0;
-  font-weight: 600;
-  font-size: 24px;
-  line-height: 1.05;
-  letter-spacing: 0;
-}
-
-.hero-weather__body {
-  display: flex;
+.weather__now {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
   align-items: center;
-  gap: 18px;
-  margin-top: 14px;
+  column-gap: 18px;
 }
 
-.hero-weather__temperature {
-  font-variant-numeric: tabular-nums;
-  font-size: 62px;
+.weather__temperature {
+  font-family: var(--font-display);
+  font-size: 72px;
+  font-weight: 600;
+  letter-spacing: -0.045em;
   line-height: 0.9;
-  font-weight: 600;
-  letter-spacing: -0.05em;
+  font-variant-numeric: tabular-nums;
 }
 
-.hero-weather__summary {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
+.weather__icon {
+  width: 52px;
+  height: 52px;
+  color: var(--ink);
 }
 
-.hero-weather__icon {
-  width: 42px;
-  height: 42px;
-  color: var(--accent-strong);
-  flex: 0 0 auto;
-}
-
-.hero-weather__icon svg,
+.weather__icon svg,
+.weather__day-icon svg,
 .icon-button__icon svg,
-.spotify-device-badge__icon svg {
+.spotify-device-badge__icon svg,
+.spotify-volume__icon svg,
+.pill-button__icon svg,
+.timer-chip__icon svg,
+.music__play svg,
+.picker-device__icon svg {
   width: 100%;
   height: 100%;
   display: block;
 }
 
-.hero-weather__condition {
-  color: var(--accent);
-  font-size: 21px;
-  line-height: 1.1;
-}
-
-.hero-weather__secondary {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 15px;
-}
-
-.hero-weather__forecast {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.hero-weather__forecast.is-empty {
-  display: none;
-}
-
-/* The QLOCKTWO grids are square and therefore bound by the hero's height, not
-   its width — a wider column does nothing for them. Dropping the forecast row
-   is the only lever that actually buys them size, and on a word clock size is
-   legibility: it is read as text, not glanced at like hands on a dial. So these
-   two faces trade the outlook for a bigger grid and keep only the current
-   conditions. Reacts instantly to the touch face-cycle via the existing
-   body[data-watch-face] hook — no JS, the chips just stop being rendered. */
-body[data-watch-face="qlocktwo"] .hero-weather__forecast,
-body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
-  display: none;
-}
-
-.forecast-chip {
-  display: grid;
-  gap: 10px;
-  padding: 12px 12px 10px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.045);
-}
-
-.forecast-chip__top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.forecast-chip__day {
+.weather__copy {
   min-width: 0;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
-.forecast-chip__icon {
-  width: 20px;
-  height: 20px;
-  color: var(--accent-strong);
-  flex: 0 0 auto;
-}
-
-.forecast-chip__temp {
-  font-variant-numeric: tabular-nums;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.forecast-chip__temp-min {
-  color: var(--muted);
-  font-size: 13px;
+.weather__condition {
+  font-size: 24px;
   font-weight: 500;
-}
-
-.divider {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-}
-
-/* Both rows are deliberately NOT content-dependent: `renderCalendar` budgets its
-   visible rows from the live `clientHeight` of the calendar row, so a
-   `fit-content` row would collapse when the list is emptied and the budget would
-   silently render everything into an overflowing box. Both `--tile-h` variants
-   are plain lengths, so the calendar row always resolves from the container.
-   Anything that changes these numbers changes how many appointments are shown.
-
-   A breakpoint sets `--tile-h-idle` / `--tile-h-active`; the state selector below
-   only *picks* between them, once, at base specificity. That is what keeps it
-   honest: a media query cannot silently define one variant and leave the other
-   inherited from base — which is exactly the trap the old 150px-vs-84px artwork
-   bug fell into, since media queries add no specificity of their own.
-   JS toggles the class — no :has(), which the WPE/cog kiosk does not have. */
-.cards-column {
-  display: grid;
-  gap: 16px;
-  min-height: 0;
-  --tile-h-idle: 200px;
-  --tile-h-active: 280px;
-  --tile-title-idle: 20px;
-  --tile-title-active: 22px;
-  --tile-h: var(--tile-h-idle);
-  --tile-title: var(--tile-title-idle);
-  grid-template-rows: minmax(0, 1fr) var(--tile-h);
-}
-
-.cards-column.is-spotify-active {
-  --tile-h: var(--tile-h-active);
-  --tile-title: var(--tile-title-active);
-}
-
-.card {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 20px 22px;
-  border-radius: var(--radius-xl);
-  background: linear-gradient(180deg, rgba(26, 32, 41, 0.9), rgba(18, 22, 29, 0.92));
-}
-
-.calendar-card {
-  min-height: 0;
-}
-
-.card__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.card__title {
-  margin: 0;
-  font-weight: 600;
-  font-size: 28px;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.status-pill.is-hidden {
-  visibility: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.status-pill[data-status="ok"] {
-  color: var(--ok);
-}
-
-.status-pill[data-status="stale"] {
-  color: var(--warn);
-}
-
-.status-pill[data-status="error"] {
-  color: var(--error);
-}
-
-.calendar-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  overflow: auto;
-  min-height: 0;
-  scrollbar-width: none;
-}
-
-.calendar-list::-webkit-scrollbar {
-  display: none;
-}
-
-.calendar-section-label {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 2px 4px 0;
-}
-
-.calendar-item,
-.calendar-empty {
-  display: grid;
-  grid-template-columns: 86px 1fr;
-  gap: 10px;
-  align-items: start;
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.calendar-item__time {
-  color: var(--accent);
-  font-size: 18px;
-  font-weight: 600;
-  /* Tabular figures so the times form a clean column instead of shifting with
-     each digit's width — Inter's proportional 1 is markedly narrower. */
-  font-variant-numeric: tabular-nums;
-  /* "09:00–10:30" must stay on one line: a wrapped time cell makes rows
-     different heights, and renderCalendar's row budget assumes they are equal. */
-  white-space: nowrap;
-}
-
-/* One line, ellipsised. Two-line titles double the row height and halve how many
-   appointments fit — not worth it in a 1/3-wide column. */
-.calendar-item__title {
+  line-height: 1.15;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 21px;
-  line-height: 1.15;
-  letter-spacing: 0;
 }
 
-.calendar-empty {
-  grid-template-columns: 1fr;
-  color: var(--muted);
+.weather__secondary {
+  margin-top: 5px;
+  font-size: 17px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Separators are rendered by CSS so an empty span costs no " · ", and the
+   first non-empty span never starts with one. */
+.weather__location:not(:empty)::before,
+.weather__stamp:not(:empty)::before {
+  content: " · ";
+}
+
+.weather__feels:empty + .weather__location::before,
+.weather__feels:empty + .weather__location:empty + .weather__stamp::before {
+  content: none;
+}
+
+.weather__stamp {
+  color: var(--amber);
+}
+
+.weather__days {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 10px;
+}
+
+.weather__days.is-empty {
+  display: none;
+}
+
+.weather__day {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  padding: 12px 16px 11px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.weather__day-name {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weather__day-icon {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  width: 26px;
+  height: 26px;
+  color: var(--ink);
+}
+
+.weather__day-temp {
+  grid-column: 1;
+  grid-row: 2;
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.weather__day-min {
+  margin-left: 6px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+/* Compact weather for the square faces: the same two rows, smaller — a
+   56 px "now" line and one 40 px strip of three day chips. 376 + 40 + 14 +
+   56 + 10 + 40 = 536 of the 556 px column. */
+body[data-watch-face="qlocktwo"] .weather,
+body[data-watch-face="qlocktwo-ooe"] .weather,
+body[data-watch-face="analog"] .weather {
+  row-gap: 10px;
+  padding-top: 14px;
+}
+
+body[data-watch-face="qlocktwo"] .weather__now,
+body[data-watch-face="qlocktwo-ooe"] .weather__now,
+body[data-watch-face="analog"] .weather__now {
+  column-gap: 14px;
+}
+
+body[data-watch-face="qlocktwo"] .weather__temperature,
+body[data-watch-face="qlocktwo-ooe"] .weather__temperature,
+body[data-watch-face="analog"] .weather__temperature {
+  font-size: 56px;
+}
+
+body[data-watch-face="qlocktwo"] .weather__icon,
+body[data-watch-face="qlocktwo-ooe"] .weather__icon,
+body[data-watch-face="analog"] .weather__icon {
+  width: 40px;
+  height: 40px;
+}
+
+body[data-watch-face="qlocktwo"] .weather__condition,
+body[data-watch-face="qlocktwo-ooe"] .weather__condition,
+body[data-watch-face="analog"] .weather__condition {
+  font-size: 20px;
+}
+
+body[data-watch-face="qlocktwo"] .weather__secondary,
+body[data-watch-face="qlocktwo-ooe"] .weather__secondary,
+body[data-watch-face="analog"] .weather__secondary {
+  margin-top: 3px;
+  font-size: 15px;
+}
+
+/* The location is the first thing to go when the line gets tight. */
+body[data-watch-face="qlocktwo"] .weather__location,
+body[data-watch-face="qlocktwo-ooe"] .weather__location,
+body[data-watch-face="analog"] .weather__location {
+  display: none;
+}
+
+body[data-watch-face="qlocktwo"] .weather__feels:empty ~ .weather__stamp::before,
+body[data-watch-face="qlocktwo-ooe"] .weather__feels:empty ~ .weather__stamp::before,
+body[data-watch-face="analog"] .weather__feels:empty ~ .weather__stamp::before {
+  content: none;
+}
+
+body[data-watch-face="qlocktwo"] .weather__day,
+body[data-watch-face="qlocktwo-ooe"] .weather__day,
+body[data-watch-face="analog"] .weather__day {
+  grid-template-columns: 22px auto minmax(0, 1fr);
+  grid-template-rows: auto;
+  column-gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+}
+
+body[data-watch-face="qlocktwo"] .weather__day-icon,
+body[data-watch-face="qlocktwo-ooe"] .weather__day-icon,
+body[data-watch-face="analog"] .weather__day-icon {
+  grid-row: auto;
+  grid-column: 1;
+  width: 22px;
+  height: 22px;
+}
+
+body[data-watch-face="qlocktwo"] .weather__day-name,
+body[data-watch-face="qlocktwo-ooe"] .weather__day-name,
+body[data-watch-face="analog"] .weather__day-name {
+  grid-column: 2;
+  font-size: 14px;
+}
+
+body[data-watch-face="qlocktwo"] .weather__day-temp,
+body[data-watch-face="qlocktwo-ooe"] .weather__day-temp,
+body[data-watch-face="analog"] .weather__day-temp {
+  grid-column: 3;
+  grid-row: 1;
+  margin-top: 0;
   font-size: 18px;
+  text-align: right;
 }
 
-/* The home Spotify tile. Full-bleed artwork with a scrim rather than a thumbnail
-   beside a caption: at 1–2 m the cover is the recognisable element, and a tile
-   that *is* a picture reads unambiguously as one pressable object — which is now
-   its whole job, since every control moved to the Spotify screen. */
-.spotify-tile {
+body[data-watch-face="qlocktwo"] .weather__day-min,
+body[data-watch-face="qlocktwo-ooe"] .weather__day-min,
+body[data-watch-face="analog"] .weather__day-min {
+  font-size: 14px;
+}
+
+/* ---- Right: rail + agenda + music ---------------------------------------- */
+/* Three fixed rows. The music row is driven by data-music (JS sets it once per
+   Spotify render): playing/paused 96 px, idle/error 60 px, hidden 0. The agenda
+   budgets its rows from the live clientHeight of its row, so these are plain
+   lengths on purpose — a content-dependent row would collapse while the list
+   is being emptied for re-render. */
+.side {
+  display: grid;
+  grid-template-rows: 36px minmax(0, 1fr) var(--music-h, 60px);
+  row-gap: 14px;
+  min-height: 0;
+}
+
+.side[data-music="playing"] {
+  --music-h: 96px;
+}
+
+/* Hidden: two rows, so the agenda runs to the bottom edge. */
+.side[data-music="hidden"] {
+  grid-template-rows: 36px minmax(0, 1fr);
+}
+
+.side[data-music="hidden"] .music {
+  display: none;
+}
+
+.rail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.rail__note {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.rail__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.timer-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px 0 10px;
+  border: 1px solid var(--amber-line);
+  border-radius: 999px;
+  background: var(--amber-soft);
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.timer-chip.is-ringing {
+  background: rgba(243, 196, 107, 0.3);
+}
+
+.timer-chip__icon {
+  width: 18px;
+  height: 18px;
+  color: var(--amber);
+}
+
+/* ---- Agenda -------------------------------------------------------------- */
+.agenda {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agenda > li {
+  flex: 0 0 auto;
+}
+
+.agenda__section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 2px 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agenda__section:first-child {
+  padding-top: 0;
+}
+
+.agenda__section b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.agenda__item {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: baseline;
+  padding: 7px 2px;
+}
+
+.agenda__time {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.agenda__title {
+  font-size: 21px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda__item.is-past {
+  opacity: 0.38;
+}
+
+/* The next upcoming event: the one row with a surface. */
+.agenda__next {
+  position: relative;
+  display: grid;
+  row-gap: 2px;
+  padding: 12px 16px 13px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.agenda__next::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--ink);
+  opacity: 0.85;
+}
+
+.agenda__next-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.agenda__next-rel {
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.agenda__next-title {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda__empty {
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font-size: 18px;
+  color: var(--ink-2);
+}
+
+.agenda__empty-sub {
+  margin-top: 4px;
+  font-size: 15px;
+  color: var(--ink-3);
+}
+
+/* ---- Music bar ----------------------------------------------------------- */
+.music {
   appearance: none;
   -webkit-appearance: none;
-  display: block;
   position: relative;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  column-gap: 14px;
+  align-items: center;
   width: 100%;
-  min-height: 0;
-  padding: 0;
-  border-radius: var(--radius-xl);
-  overflow: hidden;
+  height: 100%;
+  margin: 0;
+  padding: 12px 14px 12px 12px;
+  border: 0;
+  border-radius: var(--r-lg);
+  background: var(--surface);
   color: inherit;
   font: inherit;
   text-align: left;
+  overflow: hidden;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 
-.spotify-tile:focus-visible {
+.music:focus-visible {
   outline: 2px solid rgba(216, 231, 255, 0.55);
   outline-offset: 4px;
 }
 
-.spotify-tile:active {
+.music:active {
   transform: translateY(1px);
 }
 
-/* <button> is not a reliable containing block for absolutely positioned children
-   in older WebKit, and WPE is the engine the Pi ships. This span is. It
-   deliberately does not clip — .spotify-tile already does, and a second
-   identical rounded clip costs another mask on every tile repaint. */
-.spotify-tile__inner {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.spotify-tile__art {
-  position: absolute;
-  inset: 0;
-  display: block;
-  background:
-    radial-gradient(circle at 22% 18%, rgba(216, 231, 255, 0.14), transparent 36%),
-    linear-gradient(145deg, rgba(45, 55, 67, 0.92), rgba(18, 22, 29, 0.96));
+.music__art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  background: var(--art-fallback);
   background-size: cover;
   background-position: center;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
 }
 
-/* Non-linear on purpose: white text has to hold up over a bright cover, and
-   backdrop-filter is too expensive on VideoCore to be an option here. */
-.spotify-tile__scrim {
-  position: absolute;
-  inset: 0;
+.music__play {
+  display: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ink);
+}
+
+.music__meta {
   display: block;
-  background: linear-gradient(
-    to top,
-    rgba(8, 10, 13, 0.94) 0%,
-    rgba(8, 10, 13, 0.8) 26%,
-    rgba(8, 10, 13, 0.3) 52%,
-    rgba(8, 10, 13, 0) 76%
-  );
+  min-width: 0;
 }
 
-.spotify-tile__meta {
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  bottom: 20px;
+.music__title,
+.music__subtitle {
   display: block;
-}
-
-.spotify-tile__track {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  font-size: var(--tile-title);
-  line-height: 1.15;
-  font-weight: 600;
-  letter-spacing: 0;
-  color: var(--accent-strong);
-}
-
-.spotify-tile__artist {
-  display: block;
-  margin-top: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 15px;
 }
 
-/* Progress only — no times, no transport, no volume. All of that is one tap away
-   on the Spotify screen. */
-.spotify-tile__progress {
-  display: none;
+.music__title {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.music__subtitle {
+  margin-top: 2px;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+.music__progress {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.16);
+  height: 4px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
-.cards-column.is-spotify-active .spotify-tile__progress {
-  display: block;
-}
-
-.spotify-tile__progress-fill {
+.music__progress-fill {
   display: block;
   height: 100%;
   width: 100%;
-  background: var(--accent-strong);
+  background: var(--ink);
   transform: scaleX(0);
   transform-origin: left center;
   transition: transform 1s linear;
 }
 
-/* Idle: no cover, so the fallback gradient shows. A centred label with a
-   CSS-drawn play glyph keeps it legible as a target without an extra node. */
-.cards-column:not(.is-spotify-active) .spotify-tile__scrim {
-  background: none;
+/* Idle and error: a compact row with the play glyph, no cover, no bar. */
+.side[data-music="idle"] .music,
+.side[data-music="error"] .music {
+  grid-template-columns: 36px minmax(0, 1fr);
+  padding: 10px 16px;
 }
 
-.cards-column:not(.is-spotify-active) .spotify-tile__meta {
-  top: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
+.side[data-music="idle"] .music__art,
+.side[data-music="error"] .music__art {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  box-shadow: none;
 }
 
-.cards-column:not(.is-spotify-active) .spotify-tile__artist {
-  display: none;
-}
-
-.cards-column:not(.is-spotify-active) .spotify-tile__track {
-  -webkit-line-clamp: 1;
-}
-
-/* Idle only: the same play glyph the Spotify screen's toggle uses, so the two
-   never drift apart. Filled once at bind time, never per render. */
-.spotify-tile__play {
-  display: none;
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  color: var(--accent-strong);
-}
-
-.cards-column:not(.is-spotify-active) .spotify-tile__play {
+.side[data-music="idle"] .music__play,
+.side[data-music="error"] .music__play {
   display: block;
 }
 
-.spotify-tile__play svg {
+.side[data-music="idle"] .music__progress,
+.side[data-music="error"] .music__progress,
+.side[data-music="idle"] .music__subtitle {
+  display: none;
+}
+
+.side[data-music="idle"] .music__title {
+  font-weight: 500;
+}
+
+.side[data-music="error"] .music__subtitle {
+  color: var(--amber);
+}
+
+body[data-night="true"] .music__art {
+  opacity: 0.6;
+}
+
+/* =============================================================================
+   Screen 2 — Spotify
+   ========================================================================== */
+.spotify-detail {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  column-gap: 40px;
   width: 100%;
   height: 100%;
-  display: block;
+  padding: 32px 32px 22px;
+}
+
+.spotify-detail__visual {
+  display: grid;
+  grid-template-rows: 380px minmax(0, 1fr);
+  row-gap: 18px;
+  align-items: end;
+}
+
+.spotify-detail__artwork {
+  width: 380px;
+  height: 380px;
+  border-radius: 24px;
+  background: var(--art-fallback);
+  background-position: center;
+  background-size: cover;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
 }
 
 .spotify-device-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
+  gap: 10px;
+  justify-self: start;
   max-width: 100%;
-  padding: 8px 12px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 16px 0 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--accent);
-  font-size: 14px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 16px;
   font-weight: 500;
 }
 
 .spotify-device-badge__icon {
-  width: 16px;
-  height: 16px;
-  color: var(--muted);
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
 }
 
@@ -1028,42 +1156,187 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .spotify-tile__progress-fill {
-    transition: none;
-  }
+.spotify-detail__control {
+  display: grid;
+  grid-template-rows: 44px auto auto auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.spotify-detail__header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.pill-button {
+  appearance: none;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 18px 0 14px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition);
+}
+
+.pill-button:active {
+  transform: translateY(1px);
+}
+
+.pill-button__icon {
+  width: 18px;
+  height: 18px;
+  color: var(--ink);
+}
+
+.spotify-detail__copy {
+  min-width: 0;
+  margin-top: 14px;
+}
+
+.spotify-detail__track {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spotify-detail__artist {
+  margin-top: 8px;
+  font-size: 21px;
+  font-weight: 500;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spotify-detail__album {
+  color: var(--ink-3);
+}
+
+.spotify-detail__album:not(:empty)::before {
+  content: " · ";
+}
+
+.spotify-detail__seek {
+  margin-top: 20px;
+}
+
+/* Range inputs: 6 px track, 22 px thumb. The seek track paints its fill from
+   --seek-percent, the volume track from --vol-percent (both set by JS). */
+.spotify-volume input[type="range"],
+.spotify-detail__seek input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin: 0;
+  border-radius: 3px;
+  outline: none;
+}
+
+.spotify-detail__seek input[type="range"] {
+  background: linear-gradient(
+    90deg,
+    var(--ink) 0 var(--seek-percent, 0%),
+    rgba(255, 255, 255, 0.14) var(--seek-percent, 0%) 100%
+  );
+}
+
+.spotify-volume input[type="range"] {
+  background: linear-gradient(
+    90deg,
+    var(--ink) 0 var(--vol-percent, 0%),
+    rgba(255, 255, 255, 0.14) var(--vol-percent, 0%) 100%
+  );
+}
+
+.spotify-volume input[type="range"]::-webkit-slider-thumb,
+.spotify-detail__seek input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.spotify-volume input[type="range"]:disabled,
+.spotify-detail__seek input[type="range"]:disabled {
+  opacity: 0.35;
+}
+
+.spotify-detail__seek-times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.spotify-detail__controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 28px;
+  margin-top: 16px;
 }
 
 .spotify-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .icon-button {
   appearance: none;
   border: 0;
-  width: 68px;
-  height: 68px;
-  border-radius: 999px;
-  padding: 0;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  cursor: pointer;
-  transition: background var(--transition), transform var(--transition), opacity var(--transition);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.icon-button--primary {
-  background: linear-gradient(180deg, rgba(233, 240, 248, 0.18), rgba(233, 240, 248, 0.1));
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background var(--transition), transform var(--transition), opacity var(--transition);
 }
 
 .icon-button__icon {
-  width: 32px;
-  height: 32px;
-  color: var(--accent-strong);
+  width: 30px;
+  height: 30px;
+  color: var(--ink);
+}
+
+.icon-button--primary {
+  width: 84px;
+  height: 84px;
+  background: var(--ink);
+}
+
+.icon-button--primary .icon-button__icon {
+  width: 38px;
+  height: 38px;
+  color: var(--bg);
 }
 
 .icon-button:active {
@@ -1077,531 +1350,145 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 
 .spotify-volume {
   display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.spotify-volume__label {
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.spotify-volume input[type="range"],
-.spotify-detail__seek input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 8px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(216, 231, 255, 0.95) 0%, rgba(216, 231, 255, 0.3) 100%);
-  outline: none;
-}
-
-.spotify-volume input[type="range"]::-webkit-slider-thumb,
-.spotify-detail__seek input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 50%;
-  background: var(--accent-strong);
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
-}
-
-.spotify-volume input[type="range"]:disabled,
-.spotify-detail__seek input[type="range"]:disabled {
-  opacity: 0.35;
-}
-
-@media (max-width: 900px) {
-  body {
-    padding: 14px;
-  }
-
-  .dashboard-shell {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-  }
-
-  .hero-panel__inner {
-    min-height: 260px;
-  }
-
-  .spotify-actions {
-    justify-content: space-between;
-  }
-}
-
-@media (max-width: 1100px) and (max-height: 700px) {
-  body {
-    padding: 12px;
-  }
-
-  .dashboard-shell {
-    /* 1024 − 24 (body) − 12 (gap) = 988 → links 659 px, rechts 329 px. */
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-    gap: 12px;
-  }
-
-  .hero-panel__inner {
-    padding: 24px 26px;
-    padding-top: 28px;
-  }
-
-  .pulse-clock__hm {
-    font-size: clamp(78px, 11.4vw, 110px);
-  }
-
-  .flip-digit {
-    width: clamp(54px, 12.9vw, 132px);
-    height: clamp(82px, 20vw, 204px);
-  }
-
-  .flip-digit__digit {
-    font-size: clamp(68px, 16.3vw, 167px);
-    /* Must stay identical to .flip-digit's height or the halves desync. */
-    height: clamp(82px, 20vw, 204px);
-  }
-
-  /* 4×132 digits + 4×8 gaps + 26 separator = 586px in the 605px hero box. The
-     vw factors are picked so each maximum lands at exactly 1024px (1vw=10.24px). */
-  .flip-clock {
-    gap: 8px;
-    width: min(100%, 600px);
-  }
-
-  .flip-clock__sep {
-    gap: clamp(12px, 3vw, 30px);
-  }
-
-  .flip-clock__sep span {
-    width: clamp(8px, 1.8vw, 18px);
-    height: clamp(8px, 1.8vw, 18px);
-  }
-
-  .lcd-clock {
-    width: min(100%, 580px);
-  }
-
-  /* Cell pitch is width/11, so the letters scale with the grid: 355/11 ≈ 32px
-     per cell carries 26px glyphs with the tracking below. */
-  .qlocktwo-letter {
-    font-size: clamp(16px, 2.6vw, 26px);
-    letter-spacing: 0.06em;
-  }
-
-  /* Sized against the height the dropped forecast row frees up, not the column
-     width — the grid is square. Re-measure if the weather block changes. */
-  .watch-face__qlocktwo,
-  .watch-face__qlocktwo-ooe {
-    gap: 1px;
-    margin-top: 2px;
-    width: min(100%, 355px);
-  }
-
-  .qlocktwo-row {
-    gap: 1px;
-  }
-
-  /* Square, so height-bound like the QLOCKTWO grids — the wider column does
-     nothing for it. The extra room comes from the tightened weather block
-     below, not from the column. */
-  .analog-clock {
-    width: clamp(150px, 28vw, 287px);
-    height: clamp(150px, 28vw, 287px);
-  }
-
-  .hero-date {
-    margin-top: 12px;
-    padding-top: 12px;
-    font-size: 16px;
-    letter-spacing: 0.2em;
-  }
-
-  .hero-weather {
-    margin-top: 28px;
-    padding-top: 20px;
-  }
-
-  .hero-weather__title {
-    font-size: 22px;
-  }
-
-  .hero-weather__body {
-    gap: 12px;
-    margin-top: 10px;
-  }
-
-  .hero-weather__temperature {
-    font-size: 64px;
-  }
-
-  .hero-weather__summary {
-    gap: 10px;
-  }
-
-  .hero-weather__icon {
-    width: 40px;
-    height: 40px;
-  }
-
-  .hero-weather__condition {
-    font-size: 20px;
-  }
-
-  .hero-weather__secondary {
-    font-size: 15px;
-  }
-
-  .hero-weather__forecast {
-    gap: 10px;
-    margin-top: 16px;
-  }
-
-  .forecast-chip {
-    gap: 8px;
-    padding: 12px 14px 11px;
-    border-radius: 18px;
-  }
-
-  .forecast-chip__day {
-    font-size: 12px;
-  }
-
-  .forecast-chip__icon {
-    width: 20px;
-    height: 20px;
-  }
-
-  .forecast-chip__temp {
-    gap: 6px;
-    font-size: 20px;
-  }
-
-  .forecast-chip__temp-min {
-    font-size: 14px;
-  }
-
-  /* The square faces are the tightest vertically — give them the height the
-     enlarged weather block would otherwise take. */
-  body[data-watch-face="qlocktwo"] .hero-weather,
-  body[data-watch-face="qlocktwo-ooe"] .hero-weather,
-  body[data-watch-face="analog"] .hero-weather {
-    margin-top: 14px;
-    padding-top: 14px;
-  }
-
-  body[data-watch-face="qlocktwo"] .hero-date,
-  body[data-watch-face="qlocktwo-ooe"] .hero-date,
-  body[data-watch-face="analog"] .hero-date {
-    margin-top: 8px;
-    padding-top: 8px;
-  }
-
-  /* Tracks the grid width so the divider still lines up under it. */
-  body[data-watch-face="qlocktwo"] .hero-date,
-  body[data-watch-face="qlocktwo-ooe"] .hero-date {
-    width: min(100%, 355px);
-  }
-
-  /* 250px active leaves the calendar roughly four rows, i.e. today and tomorrow
-     at the roomier type below. Raising it drops rows; compute_row_budget trims
-     from the back, so what falls away is the last day, never today. */
-  .cards-column {
-    gap: 12px;
-    --tile-h-idle: 180px;
-    --tile-h-active: 250px;
-    --tile-title-idle: 19px;
-    --tile-title-active: 20px;
-  }
-
-  .card {
-    padding: 14px 16px;
-    border-radius: 24px;
-  }
-
-  .card__header {
-    margin-bottom: 8px;
-  }
-
-  .card__title {
-    font-size: 18px;
-  }
-
-  .status-pill {
-    padding: 5px 9px;
-    font-size: 10px;
-  }
-
-  /* Air over completeness: bigger type and roomier rows read better at 1-2 m on
-     a panel this coarse, and the row budget drops from 6 to 4 as a result. The
-     trim order makes that acceptable — ties shave the latest section first, so
-     it is the day after tomorrow that falls away, never today. */
-  .calendar-list {
-    gap: 10px;
-  }
-
-  .calendar-section-label {
-    font-size: 11px;
-    padding-top: 0;
-  }
-
-  /* 104px is the floor for the time cell: "09:00–10:30" measures ~99px at
-     16px/600 with tabular figures — Inter's tabular cut is wider than its
-     proportional one, so those two changes push in opposite directions. Too
-     narrow and the text paints outside its track rather than wrapping (nowrap),
-     silently eating the gap to the title. */
-  .calendar-item,
-  .calendar-empty {
-    grid-template-columns: 104px 1fr;
-    gap: 12px;
-    padding: 13px 14px;
-  }
-
-  .calendar-item__time {
-    font-size: 16px;
-  }
-
-  .calendar-item__title {
-    font-size: 18px;
-  }
-
-  .calendar-empty {
-    font-size: 14px;
-  }
-
-  .spotify-tile {
-    border-radius: 24px;
-  }
-
-  .spotify-tile__meta {
-    left: 16px;
-    right: 16px;
-    bottom: 18px;
-  }
-
-  .spotify-tile__artist {
-    font-size: 14px;
-  }
-
-  .spotify-device-badge {
-    padding: 6px 10px;
-    font-size: 12px;
-  }
-
-  .spotify-actions {
-    gap: 10px;
-  }
-
-  .icon-button {
-    width: 58px;
-    height: 58px;
-  }
-
-  .icon-button__icon {
-    width: 28px;
-    height: 28px;
-  }
-
-  .spotify-volume {
-    gap: 4px;
-  }
-
-  .spotify-volume__label {
-    display: none;
-  }
-
-  .spotify-volume input[type="range"],
-  .spotify-detail__seek input[type="range"] {
-    height: 6px;
-  }
-
-  .spotify-volume input[type="range"]::-webkit-slider-thumb,
-  .spotify-detail__seek input[type="range"]::-webkit-slider-thumb {
-    width: 18px;
-    height: 18px;
-  }
-
-  .toast {
-    bottom: 18px;
-    padding: 12px 18px;
-    font-size: 15px;
-    border-radius: 14px;
-    max-width: min(520px, calc(100% - 36px));
-  }
-}
-
-.screensaver {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: none;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
-  background: #050608;
+  column-gap: 14px;
+  min-width: 0;
+  color: var(--ink-2);
 }
 
-.screensaver.is-active {
-  display: flex;
+.spotify-volume__icon {
+  width: 22px;
+  height: 22px;
 }
 
-.screensaver__image,
-.screensaver__overlay,
-.screensaver__fallback {
+/* The icon carries the meaning; the word stays for screen readers only. */
+.spotify-volume__label {
   position: absolute;
-  inset: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
-/* Plan C1: two stacked slots crossfade between photos. Only the slot with
-   ``is-active`` is visible; the other preloads the next image at 0 opacity.
-   1.2 s ease gives the living-room panel a calm handover without hiding
-   decode glitches. prefers-reduced-motion disables the transition. */
-.screensaver__image {
+.spotify-volume__readout {
+  min-width: 44px;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.spotify-detail__queue {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hair);
+}
+
+.spotify-detail__queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.spotify-detail__queue-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink-2);
+}
+
+.spotify-detail__queue-status {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--amber);
+}
+
+/* Four rows of 48 px fit exactly; overflow stays hidden so a fifth row from a
+   future payload can never show half-cut. */
+.spotify-detail__queue-list {
+  display: grid;
+  grid-auto-rows: 48px;
+  align-content: start;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.spotify-detail__queue-item {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  height: 48px;
+}
+
+.spotify-detail__queue-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--art-fallback);
+  overflow: hidden;
+}
+
+.spotify-detail__queue-art img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  opacity: 0;
-  transition: opacity 1.2s ease;
 }
 
-.screensaver.is-active .screensaver__image {
-  will-change: opacity;
+.spotify-detail__queue-copy {
+  min-width: 0;
 }
 
-.screensaver__image.is-active {
-  opacity: 1;
+.spotify-detail__queue-title,
+.spotify-detail__queue-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .screensaver__image {
-    transition: none;
-  }
-}
-
-.screensaver__overlay {
-  background:
-    linear-gradient(180deg, rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.55)),
-    radial-gradient(circle at top left, rgba(216, 231, 255, 0.18), transparent 34%);
-  pointer-events: none;
-}
-
-.screensaver__fallback {
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  text-align: center;
-}
-
-.screensaver__clock {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.flip-clock--screensaver {
-  width: min(90vw, 640px);
-  gap: 10px;
-}
-
-.flip-clock--screensaver .flip-digit {
-  width: clamp(92px, 14vw, 140px);
-  height: clamp(140px, 22vw, 212px);
-}
-
-.flip-clock--screensaver .flip-digit__digit {
-  font-size: clamp(118px, 18vw, 178px);
-  height: clamp(140px, 22vw, 212px);
-}
-
-.flip-clock--screensaver .flip-clock__sep {
-  gap: clamp(16px, 2vw, 24px);
-}
-
-.screensaver__caption {
-  color: var(--muted);
-  font-size: 20px;
-  letter-spacing: 0.04em;
-}
-
-/* Toast (Plan A4). One-shot message for Spotify/control errors. Single-slot:
-   a new toast replaces the active one. Tap anywhere on the toast to dismiss. */
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: 24px;
-  transform: translate(-50%, 12px);
-  max-width: min(560px, calc(100% - 48px));
-  padding: 14px 22px;
-  border-radius: 16px;
-  background: rgba(22, 27, 34, 0.99);
-  border: 1px solid rgba(242, 167, 167, 0.32);
-  color: var(--text);
+.spotify-detail__queue-title {
   font-size: 17px;
-  line-height: 1.35;
-  letter-spacing: 0.005em;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.38);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 180ms ease, transform 180ms ease;
-  z-index: 30;
-  text-align: center;
-}
-
-.toast[data-kind="info"] {
-  border-color: rgba(216, 231, 255, 0.32);
-}
-
-.toast.is-visible {
-  opacity: 1;
-  transform: translate(-50%, 0);
-  pointer-events: auto;
-}
-
-/* Spotify Connect picker — "Musik wählen" trigger + full-screen touch sheet.
-   The trigger lives on the Spotify screen only; the home tile leads there. */
-.pill-button {
-  appearance: none;
-  border: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  transition: background var(--transition), transform var(--transition);
+  line-height: 1.2;
 }
 
-.pill-button:active {
-  transform: translateY(1px);
+.spotify-detail__queue-subtitle {
+  margin-top: 1px;
+  font-size: 14px;
+  color: var(--ink-2);
 }
 
-.pill-button.is-hidden {
-  display: none;
+.spotify-detail__queue-duration {
+  font-size: 14px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
-.pill-button__icon {
-  width: 22px;
-  height: 22px;
-  color: var(--accent-strong);
-  display: inline-flex;
+.spotify-detail__queue-message {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 15px;
 }
 
-.pill-button__icon svg {
-  width: 100%;
-  height: 100%;
+.spotify-detail.is-inactive .spotify-detail__controls,
+.spotify-detail.is-inactive .spotify-detail__seek {
+  opacity: 0.5;
 }
 
+/* =============================================================================
+   Spotify Connect picker (full-screen touch sheet)
+   ========================================================================== */
 .picker {
   position: fixed;
   inset: 0;
@@ -1616,22 +1503,18 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 .picker__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(5, 6, 8, 0.82);
+  background: rgba(0, 0, 0, 0.82);
 }
 
 .picker__sheet {
   position: absolute;
-  inset: 0;
-  margin: auto;
-  width: min(820px, calc(100% - 48px));
-  max-height: calc(100% - 48px);
+  inset: 16px;
   display: flex;
   flex-direction: column;
-  padding: 22px 24px 24px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: var(--panel-strong);
-  box-shadow: var(--shadow);
+  padding: 18px 22px 20px;
+  border-radius: var(--r-lg);
+  background: #0e1115;
+  border: 1px solid var(--hair);
 }
 
 .picker__header {
@@ -1643,29 +1526,29 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .picker__title {
-  margin: 0;
+  font-size: 24px;
   font-weight: 600;
-  font-size: 26px;
-  letter-spacing: 0;
 }
 
-.picker__close {
+.picker__close,
+.sheet__close {
   appearance: none;
   border: 0;
-  width: 52px;
-  height: 52px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-  font-size: 30px;
-  line-height: 1;
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.picker__close:active {
+.picker__close:active,
+.sheet__close:active {
   transform: translateY(1px);
 }
 
@@ -1694,23 +1577,18 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   margin: 0 0 10px;
   font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.picker__section-head .picker__section-title {
-  margin-bottom: 10px;
+  color: var(--ink-2);
 }
 
 .picker__transfer {
   appearance: none;
-  border: 1px solid var(--line);
-  padding: 8px 14px;
+  border: 0;
+  height: 40px;
+  padding: 0 16px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  font-size: 14px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -1728,15 +1606,15 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 
 .picker-device {
   appearance: none;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 16px;
-  min-height: 56px;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text);
+  height: 50px;
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
@@ -1744,8 +1622,8 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .picker-device.is-selected {
-  border-color: var(--accent);
-  background: rgba(216, 231, 255, 0.16);
+  background: var(--ink);
+  color: var(--bg);
 }
 
 .picker-device:disabled {
@@ -1754,24 +1632,17 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .picker-device__icon {
-  width: 22px;
-  height: 22px;
-  color: var(--accent-strong);
+  width: 20px;
+  height: 20px;
   display: inline-flex;
-}
-
-.picker-device__icon svg {
-  width: 100%;
-  height: 100%;
 }
 
 .picker__playlists {
   flex: 1 1 auto;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 14px;
-  padding-right: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 14px 12px;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -1780,7 +1651,7 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   border: 0;
   padding: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--ink);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -1792,9 +1663,9 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  border-radius: var(--radius-md);
+  border-radius: var(--r-sm);
   overflow: hidden;
-  background: linear-gradient(145deg, rgba(216, 231, 255, 0.22), rgba(173, 142, 109, 0.18));
+  background: var(--art-fallback);
 }
 
 .picker-playlist__art img {
@@ -1809,9 +1680,9 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .picker-playlist__name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.25;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -1821,439 +1692,45 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 .picker__message {
   margin: 0;
   padding: 8px 2px;
-  color: var(--muted);
+  color: var(--ink-2);
   font-size: 15px;
 }
 
-/* 1024x600 kiosk: tighten paddings, shrink touch targets sensibly but keep
-   them finger-friendly, and cap playlist tiles so two rows stay visible. */
-@media (max-width: 1100px) and (max-height: 700px) {
-  .picker__sheet {
-    width: calc(100% - 32px);
-    max-height: calc(100% - 32px);
-    padding: 16px 18px 18px;
-  }
-
-  .picker__title {
-    font-size: 22px;
-  }
-
-  .picker__close {
-    width: 46px;
-    height: 46px;
-  }
-
-  .picker-device {
-    min-height: 50px;
-    padding: 10px 14px;
-    font-size: 15px;
-  }
-
-  .picker__playlists {
-    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-    gap: 12px;
-  }
-
-  .picker-playlist__name {
-    font-size: 14px;
-  }
-}
-
-/* Two-screen shell. Screens only receive compositor hints during the short,
-   discrete page transition; there is deliberately no live drag animation. */
-.screen-stage {
-  position: relative;
-  flex: 1 1 auto;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  /* pan-y, not none: the horizontal axis is ours (the swipe handler owns it),
-     but vertical panning has to stay with the browser or `.calendar-list`
-     — an overflow:auto list with hidden scrollbars — becomes unscrollable on
-     the touch panel. touch-action ANDs down the ancestor chain, so a
-     descendant cannot win panning back once we take it here. */
-  touch-action: pan-y;
-}
-
-.display-screen {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition:
-    opacity 200ms ease,
-    transform 200ms ease,
-    visibility 0s linear 200ms;
-}
-
-.display-screen--home {
-  transform: translateX(-28px);
-}
-
-.display-screen--spotify {
-  transform: translateX(28px);
-}
-
-.display-screen.is-active {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transform: translateX(0);
-  transition-delay: 0s;
-}
-
-.screen-stage.is-animating .display-screen {
-  will-change: transform, opacity;
-}
-
-.screen-stage.is-instant .display-screen {
-  transition: none;
-}
-
-/* Full Spotify controller: deliberately fixed to the 1024x600 kiosk canvas. */
-.spotify-detail {
-  display: grid;
-  grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
-  gap: 12px;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-}
-
-.spotify-detail > .card {
-  min-height: 0;
-  padding: 16px 18px;
-}
-
-.spotify-detail__visual {
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-}
-
-.spotify-detail__artwork {
-  width: min(100%, 400px);
-  aspect-ratio: 1 / 1;
-  flex: 0 1 auto;
-  min-height: 0;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 26px;
-  background:
-    radial-gradient(circle at 22% 18%, rgba(216, 231, 255, 0.18), transparent 34%),
-    linear-gradient(145deg, rgba(45, 55, 67, 0.96), rgba(18, 22, 29, 0.98));
-  background-position: center;
-  background-size: cover;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
-}
-
-.spotify-detail__visual-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: min(100%, 400px);
-}
-
-.spotify-detail__device {
-  min-width: 0;
-}
-
-.spotify-detail__volume-readout {
-  flex: 0 0 auto;
-  color: var(--muted);
-  font-size: 14px;
-  /* Matches .spotify-device-badge beside it in the same row. Tabular figures
-     because the value updates on every drag frame — proportional digits would
-     make the readout and the badge next to it reflow continuously. */
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-.spotify-detail__control {
-  gap: 0;
-}
-
-.spotify-detail__header,
-.spotify-detail__header-actions,
-.spotify-detail__queue-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.spotify-detail__eyebrow {
-  margin-bottom: 2px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.spotify-detail__heading {
-  margin: 0;
-  font-weight: 600;
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.spotify-detail__copy {
-  min-width: 0;
-  margin-top: 12px;
-}
-
-.spotify-detail__track {
-  overflow: hidden;
-  color: var(--accent-strong);
-  font-size: clamp(25px, 3vw, 34px);
-  font-weight: 600;
-  line-height: 1.05;
-  letter-spacing: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spotify-detail__artist {
-  overflow: hidden;
-  margin-top: 5px;
-  color: var(--accent);
-  font-size: 17px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spotify-detail__album {
-  overflow: hidden;
-  min-height: 17px;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spotify-detail__seek {
-  margin-top: 11px;
-}
-
-/* Shares the base range styling (and its 1024x600 overrides) with
-   .spotify-volume — only the progress-fill background differs. */
-.spotify-detail__seek input[type="range"] {
-  display: block;
-  margin: 0;
-  background: linear-gradient(
-    90deg,
-    rgba(216, 231, 255, 0.96) 0 var(--seek-percent, 0%),
-    rgba(255, 255, 255, 0.12) var(--seek-percent, 0%) 100%
-  );
-}
-
-.spotify-detail__seek-times {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-.spotify-detail__controls {
-  display: grid;
-  grid-template-columns: auto minmax(130px, 1fr);
-  align-items: center;
-  gap: 20px;
-  margin-top: 8px;
-}
-
-.spotify-detail__actions {
-  gap: 10px;
-}
-
-.spotify-detail__actions .icon-button {
-  width: 58px;
-  height: 58px;
-}
-
-.spotify-detail__actions .spotify-detail__toggle {
-  width: 66px;
-  height: 66px;
-}
-
-.spotify-detail__volume {
-  gap: 6px;
-}
-
-.spotify-detail__queue {
-  min-height: 0;
-  margin-top: 10px;
-  padding-top: 9px;
-  border-top: 1px solid var(--line);
-}
-
-.spotify-detail__queue-header h2 {
-  margin: 0;
-  font-weight: 600;
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0;
-}
-
-.spotify-detail__queue-status {
-  color: var(--warn);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.spotify-detail__queue-list {
-  display: grid;
-  gap: 5px;
-  margin-top: 7px;
-}
-
-.spotify-detail__queue-item {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  padding: 3px 8px 3px 3px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.spotify-detail__queue-art {
-  width: 38px;
-  height: 38px;
-  border-radius: 9px;
-  background: linear-gradient(145deg, rgba(216, 231, 255, 0.18), rgba(173, 142, 109, 0.13));
-  background-position: center;
-  background-size: cover;
-}
-
-.spotify-detail__queue-art img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  object-fit: cover;
-}
-
-.spotify-detail__queue-copy {
-  min-width: 0;
-}
-
-.spotify-detail__queue-title,
-.spotify-detail__queue-subtitle {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.spotify-detail__queue-title {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.15;
-}
-
-.spotify-detail__queue-subtitle {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.spotify-detail__queue-message {
-  margin: 0;
-  padding: 16px 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.035);
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.spotify-detail.is-inactive .spotify-detail__controls,
-.spotify-detail.is-inactive .spotify-detail__seek {
-  opacity: 0.5;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .display-screen {
-    transition-duration: 1ms;
-  }
-}
-
 /* =============================================================================
-   Ticket #1 — clock not yet synchronised
+   Toast
    ========================================================================== */
-.hero-hint {
-  margin-top: 6px;
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 30;
+  max-width: 560px;
+  padding: 12px 20px;
+  border-radius: 14px;
+  background: #15191f;
+  border: 1px solid var(--danger-line);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.35;
   text-align: center;
-  color: var(--warn);
-  font-size: 15px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  transform: translate(-50%, 12px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
 }
 
-.hero-hint.is-hidden {
-  display: none;
+.toast[data-kind="info"] {
+  border-color: var(--hair);
 }
 
-/* =============================================================================
-   Ticket #3 — running-timer chip on the home screen (top right of the hero)
-   ========================================================================== */
-.timer-chip {
-  appearance: none;
-  border: 1px solid rgba(245, 211, 140, 0.35);
-  position: absolute;
-  top: 18px;
-  right: 20px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 0 16px 0 12px;
-  border-radius: 999px;
-  background: rgba(245, 211, 140, 0.12);
-  color: var(--text);
-  font-size: 20px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  z-index: 2;
-}
-
-.timer-chip.is-hidden {
-  display: none;
-}
-
-.timer-chip.is-ringing {
-  background: rgba(245, 211, 140, 0.3);
-}
-
-.timer-chip__icon {
-  width: 22px;
-  height: 22px;
-  color: var(--warn);
-  display: inline-flex;
-}
-
-.timer-chip__icon svg {
-  width: 100%;
-  height: 100%;
+.toast.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  pointer-events: auto;
 }
 
 /* =============================================================================
-   Ticket #2/#3 — quick sheet (swipe up / tap the grip)
+   Quick sheet (Ticket #2/#3)
    ========================================================================== */
 .sheet-handle {
   appearance: none;
@@ -2261,23 +1738,24 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   position: fixed;
   left: 50%;
   bottom: 0;
-  transform: translateX(-50%);
+  z-index: 15;
   width: 120px;
   height: 26px;
   padding: 0;
   background: transparent;
+  transform: translateX(-50%);
   cursor: pointer;
-  z-index: 15;
   -webkit-tap-highlight-color: transparent;
 }
 
-.sheet-handle span {
+.sheet-handle span,
+.sheet__grip {
   display: block;
   width: 44px;
   height: 4px;
   margin: 0 auto;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .sheet {
@@ -2294,7 +1772,7 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 .sheet__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(5, 6, 8, 0.7);
+  background: rgba(0, 0, 0, 0.65);
 }
 
 .sheet__panel {
@@ -2302,15 +1780,19 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   left: 0;
   right: 0;
   bottom: 0;
-  height: min(440px, calc(100% - 40px));
-  padding: 14px 24px 22px;
-  border-top: 1px solid var(--line);
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  background: var(--panel-strong);
-  box-shadow: var(--shadow);
+  height: 380px;
+  padding: 14px 32px 20px;
+  border-top: 1px solid var(--hair);
+  border-radius: 28px 28px 0 0;
+  background: #0e1115;
   transform: translateY(100%);
   transition: transform 220ms ease;
   overflow: hidden;
+}
+
+body[data-night="true"] .sheet__panel,
+body[data-night="true"] .picker__sheet {
+  background: #06070a;
 }
 
 .sheet.is-open .sheet__panel {
@@ -2322,34 +1804,20 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .sheet__grip {
-  width: 44px;
-  height: 4px;
-  margin: 0 auto 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.22);
+  margin-bottom: 18px;
 }
 
 .sheet__close {
-  appearance: none;
-  border: 0;
   position: absolute;
-  top: 14px;
-  right: 18px;
-  width: 52px;
-  height: 52px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-  font-size: 30px;
-  line-height: 1;
-  cursor: pointer;
+  top: 16px;
+  right: 24px;
 }
 
 .sheet__columns {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.8fr);
-  gap: 22px;
-  height: calc(100% - 16px);
+  grid-template-columns: 270px 250px 150px 230px;
+  column-gap: 20px;
+  height: calc(100% - 22px);
   min-height: 0;
 }
 
@@ -2361,16 +1829,10 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .sheet__title {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 13px;
+  margin: 0 0 12px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.sheet__title--spaced {
-  margin-top: 18px;
+  color: var(--ink-2);
 }
 
 .sheet__chips {
@@ -2381,25 +1843,28 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 
 .chip {
   appearance: none;
-  border: 1px solid var(--line);
-  min-height: 48px;
-  padding: 0 18px;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  padding: 0 16px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-  font-size: 17px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 18px;
   font-weight: 500;
   cursor: pointer;
   transition: background var(--transition);
 }
 
 .chip:active {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--surface-3);
 }
 
 .chip.is-selected {
-  background: rgba(216, 231, 255, 0.18);
-  border-color: rgba(216, 231, 255, 0.45);
+  background: var(--ink);
+  color: var(--bg);
   font-weight: 600;
 }
 
@@ -2410,16 +1875,16 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 
 .sheet__note {
   margin-top: 10px;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.35;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--ink-2);
 }
 
 .timer-list {
-  margin-top: 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-top: 14px;
   overflow: hidden;
 }
 
@@ -2427,66 +1892,65 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px;
-  min-height: 56px;
-  padding: 6px 6px 6px 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.05);
+  column-gap: 10px;
+  height: 60px;
+  padding: 0 8px 0 14px;
+  border-radius: var(--r-md);
+  background: var(--surface);
 }
 
 .timer-row.is-ringing {
-  background: rgba(245, 211, 140, 0.2);
+  background: rgba(243, 196, 107, 0.2);
 }
 
 .timer-row__remaining {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
 }
 
 .timer-row__label {
-  color: var(--muted);
   font-size: 15px;
+  color: var(--ink-2);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .timer-row__cancel {
   appearance: none;
   border: 0;
-  min-width: 48px;
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
-  font-size: 15px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 16px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .timer-list__empty {
-  color: var(--muted);
-  font-size: 14px;
+  margin-top: 14px;
+  font-size: 15px;
+  color: var(--ink-3);
 }
 
 .hold-button {
   appearance: none;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  min-height: 58px;
+  height: 56px;
   margin-bottom: 10px;
-  padding: 0 18px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
   font-size: 17px;
   font-weight: 600;
   cursor: pointer;
@@ -2497,7 +1961,7 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .hold-button--danger {
-  border-color: rgba(242, 167, 167, 0.35);
+  border-color: var(--danger-line);
 }
 
 .hold-button:disabled {
@@ -2530,13 +1994,13 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .hold-button__hint {
-  color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
+  color: var(--ink-2);
 }
 
 /* =============================================================================
-   Ticket #3 — full-screen visual alarm
+   Timer alarm (full-screen, visual only)
    ========================================================================== */
 .alarm {
   position: fixed;
@@ -2555,17 +2019,13 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 .alarm__pulse {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at center, rgba(245, 211, 140, 0.35), transparent 70%);
+  background: radial-gradient(circle at center, rgba(243, 196, 107, 0.35), transparent 70%);
   animation: alarm-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes alarm-pulse {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .alarm__pulse { animation: none; opacity: 0.7; }
 }
 
 .alarm__body {
@@ -2578,24 +2038,25 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .alarm__eyebrow {
-  color: var(--warn);
   font-size: 16px;
   font-weight: 600;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  color: var(--amber);
 }
 
 .alarm__title {
+  font-family: var(--font-display);
   font-size: 64px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.05;
 }
 
 .alarm__label {
-  color: var(--muted);
-  font-size: 24px;
   min-height: 30px;
+  font-size: 24px;
+  color: var(--ink-2);
 }
 
 .alarm__actions {
@@ -2606,26 +2067,25 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 
 .alarm__button {
   appearance: none;
-  border: 1px solid var(--line);
+  border: 0;
   min-width: 180px;
-  min-height: 76px;
+  height: 76px;
   padding: 0 32px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text);
+  background: var(--surface-2);
+  color: var(--ink);
   font-size: 26px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .alarm__button--primary {
-  background: var(--warn);
-  border-color: transparent;
+  background: var(--amber);
   color: #1a1407;
 }
 
 /* =============================================================================
-   Ticket #2 — power overlay
+   Power overlay
    ========================================================================== */
 .power-overlay {
   position: fixed;
@@ -2634,7 +2094,7 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   display: none;
   align-items: center;
   justify-content: center;
-  background: #050608;
+  background: #000;
 }
 
 .power-overlay.is-active {
@@ -2642,22 +2102,98 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .power-overlay__text {
-  color: var(--muted);
   font-size: 28px;
   font-weight: 500;
-  letter-spacing: 0.04em;
+  color: var(--ink-2);
 }
 
 /* =============================================================================
-   Ticket #2 — screensaver info overlay + modes
+   Screensaver
    .screensaver--photo    photos + info bottom-left
-   .screensaver--fallback no photos: big flip clock (unchanged), info hidden
+   .screensaver--fallback no photos: big flip clock, info hidden
    .screensaver--night    no photos: dim centred clock on black
    ========================================================================== */
+.screensaver {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: #050608;
+}
+
+.screensaver.is-active {
+  display: flex;
+}
+
+.screensaver__image,
+.screensaver__overlay,
+.screensaver__fallback {
+  position: absolute;
+  inset: 0;
+}
+
+/* Two stacked slots crossfade between photos; the inactive one preloads. */
+.screensaver__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+
+.screensaver.is-active .screensaver__image {
+  will-change: opacity;
+}
+
+.screensaver__image.is-active {
+  opacity: 1;
+}
+
+.screensaver__overlay {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.58));
+  pointer-events: none;
+}
+
+.screensaver__fallback {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.screensaver--fallback .screensaver__fallback {
+  display: flex;
+}
+
+.screensaver__clock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flip-clock--screensaver .flip-digit {
+  width: 140px;
+  height: 228px;
+}
+
+.flip-clock--screensaver .flip-digit__digit {
+  height: 228px;
+  font-size: 192px;
+}
+
+.screensaver__caption {
+  font-size: 20px;
+  color: var(--ink-2);
+}
+
 .screensaver__info {
   position: absolute;
-  left: 40px;
-  bottom: 34px;
+  left: 32px;
+  bottom: 28px;
   display: none;
   flex-direction: column;
   gap: 4px;
@@ -2671,8 +2207,9 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 }
 
 .screensaver__time {
+  font-family: var(--font-display);
   font-size: 96px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
@@ -2686,14 +2223,9 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   opacity: 0.9;
 }
 
-.screensaver__meta-sep.is-hidden,
-.screensaver__timer.is-hidden {
-  display: none;
-}
-
 .screensaver__timer {
   margin-top: 6px;
-  color: var(--warn);
+  color: var(--amber);
   font-size: 24px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -2701,8 +2233,6 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 
 .screensaver--night {
   background: #000;
-  align-items: center;
-  justify-content: center;
 }
 
 .screensaver--night .screensaver__image,
@@ -2722,7 +2252,6 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
 
 .screensaver--night .screensaver__time {
   font-size: 180px;
-  font-weight: 600;
 }
 
 .screensaver--night .screensaver__meta {
@@ -2730,64 +2259,28 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
   opacity: 0.7;
 }
 
-.screensaver--fallback .screensaver__fallback {
-  display: flex;
-}
-
 /* =============================================================================
-   Ticket #2 — night palette. Only colours and the decorative gradients change,
-   nothing moves. Everything stays readable, just a lot less bright.
+   Reduced motion
    ========================================================================== */
-body[data-night="true"] {
-  --text: #aab2bb;
-  --muted: #66707b;
-  --accent: #9fb0c7;
-  --accent-strong: #c9d1da;
-  --panel: rgba(10, 12, 15, 0.98);
-  --panel-strong: rgba(12, 14, 18, 0.98);
-  --line: rgba(255, 255, 255, 0.05);
-  --shadow: none;
-  --warn: #b89d68;
-  background: #050607;
-}
-
-body[data-night="true"] .hero-panel::before {
-  display: none;
-}
-
-body[data-night="true"] .flip-digit {
-  filter: none;
-}
-
-body[data-night="true"] .flip-digit__half,
-body[data-night="true"] .flip-digit__flap {
-  background: #0e1115;
-}
-
-body[data-night="true"] .lcd-seg.is-on,
-body[data-night="true"] .lcd-colon circle {
-  fill: #a7772f;
-  filter: none;
-}
-
-body[data-night="true"] .spotify-tile__art {
-  opacity: 0.6;
-}
-
-/* 1024×600 kiosk: the sheet keeps room for the hero above it. */
-@media (max-width: 1100px) and (max-height: 700px) {
-  .sheet__panel {
-    height: 400px;
-    padding: 12px 20px 18px;
+@media (prefers-reduced-motion: reduce) {
+  .flip-digit.is-flipping .flip-digit__flap--top,
+  .flip-digit.is-flipping .flip-digit__flap--bottom {
+    animation-duration: 1ms;
   }
 
-  .timer-chip {
-    top: 14px;
-    right: 16px;
+  .qlocktwo-letter,
+  .analog-clock__hand,
+  .music__progress-fill,
+  .screensaver__image {
+    transition: none;
   }
 
-  .screensaver__info {
-    left: 32px;
-    bottom: 28px;
+  .display-screen {
+    transition-duration: 1ms;
+  }
+
+  .alarm__pulse {
+    animation: none;
+    opacity: 0.7;
   }
 }

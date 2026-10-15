@@ -43,5 +43,5 @@ def format_initial_clock(
     return {
         "time": current.strftime("%H:%M"),
         "seconds": current.strftime("%S"),
-        "date": f"{weekday} · {current.day}. {month}",
+        "date": f"{weekday}, {current.day}. {month}",
     }

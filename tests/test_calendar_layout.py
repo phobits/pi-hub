@@ -97,6 +97,32 @@ class ComputeRowBudgetTest(unittest.TestCase):
         )
         self.assertEqual(result, [1, 0, 0])
 
+    def test_extra_rows_count_against_the_budget(self) -> None:
+        # Homescreen v2: the highlighted next event is one row taller, so its
+        # section carries one extra row while it shows anything. Without the
+        # extra, [1, 1] costs 4 rows (two labels, two items) and fits a budget
+        # of 4; with today's extra it costs 5, so the trim runs once more and
+        # — ties go to the latest section — tomorrow drops out.
+        self.assertEqual(
+            compute_row_budget([2, 1], 4, section_has_label=[True, True]),
+            [1, 1],
+        )
+        self.assertEqual(
+            compute_row_budget(
+                [2, 1],
+                4,
+                section_has_label=[True, True],
+                section_extra_rows=[1, 0],
+            ),
+            [1, 0],
+        )
+
+    def test_extra_rows_length_mismatch_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            compute_row_budget(
+                [1, 1], 4, section_has_label=[True, True], section_extra_rows=[1]
+            )
+
     def test_label_length_mismatch_raises(self) -> None:
         with self.assertRaises(ValueError):
             compute_row_budget([1, 2], 5, section_has_label=[True])

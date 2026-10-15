@@ -1,6 +1,16 @@
 # Homescreen v2 — Review, Konzept, Plan
 
-Stand: 2026-10-15 · Branch `feat/homescreen-v2` · Status: **Konzept, wartet auf Freigabe**
+Stand: 2026-10-15 · Branch `feat/homescreen-v2` · Status: **freigegeben und umgesetzt**
+
+Entscheidungen bei der Freigabe (weichen von den Mockups ab):
+
+- Alle fünf Abweichungen gegenüber AGENTS.md: ja.
+- Musik-Leiste wird **ausgeblendet**, solange Spotify nicht verbunden ist (statt 60-px-Leerlauf-Leiste); „Musik starten“ bleibt, sobald verbunden.
+- Screen 2 hat **keinen** „Start“-Knopf, zurück nur per Wisch.
+- Relative Zeit bis 60 Minuten („in 48 Min“), „jetzt“ während der Termin läuft, darüber nur die Uhrzeit; am Folgetag nur Hervorhebung.
+- Ton des Leerzustands wie gezeigt.
+
+Das Ergebnis liegt in `smart_display/web/` (Template, `app.css`, `app.js`); die Mockups hier sind der Entwurf, nicht der Stand.
 
 Mockups: `docs/konzept/homescreen-v2/mock/` (statisches HTML, 1024×600, gleiche Schrift wie das Gerät).
 Screens: `docs/konzept/homescreen-v2/screens/neu/` (Konzept) und `screens/ist/` (aktueller Stand, Demo-Server).

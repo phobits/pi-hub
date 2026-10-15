@@ -11,6 +11,35 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+### Geändert — Homescreen v2 „Glance“
+
+- **Homescreen neu gebaut.** Keine Karten, keine Rahmen, keine Überschriften;
+  Hierarchie aus Größe, Gewicht und Abstand. Links 612 px Uhr-Bühne (300 px,
+  Wortuhr/Analog 376 px), Datum „Donnerstag, 15. Oktober“, Wetter jetzt + drei
+  Tage. Rechts 328 px: Statusleiste, Termine, Musik-Leiste. Konzept und
+  Mockups unter `docs/konzept/homescreen-v2.md`.
+- **Nächster Termin hervorgehoben** mit relativer Zeit („jetzt“, „in 48 Min“
+  bis 60 Minuten); vergangene Termine abgeblendet, pro Tag bleibt höchstens
+  der jüngste. Der hervorgehobene Termin zählt im Zeilenbudget doppelt
+  (`compute_row_budget(section_extra_rows=…)`).
+- **Zustand als Zeitstempel statt Badge**: „Stand HH:MM“ beim Wetter, „Offline ·
+  Stand HH:MM“ in der Statusleiste, „Spotify · Nicht erreichbar · zuletzt HH:MM“
+  in der Musik-Leiste. Die Status-Pills („Cache“, „Fehler“, „Leer“) sind weg.
+- **Musik-Leiste statt Kachel**: 96 px bei Wiedergabe, 60 px im Leerlauf,
+  ausgeblendet solange Spotify nicht verbunden ist. Der Timer-Chip sitzt in der
+  Statusleiste statt über der Uhr.
+- **Spotify-Screen**: Restzeit statt Gesamtzeit, 15-px-Zeiten, Lautstärke mit
+  Symbol und Wert am Regler, Warteschlange mit Dauer (`duration_ms` im
+  Queue-Payload), keine Kopfzeile. Sheet in vier Spalten (Timer · Uhr · Nacht ·
+  Gerät).
+- **`app.css` neu geschrieben** für genau eine Auflösung: keine Media-Queries,
+  kein `clamp()`, keine `vw`. 2793 → ~2300 Zeilen, jede Größe einmal. LCD- und
+  Puls-Doppelpunkt blinken nicht mehr (kein 24/7-Repaint), Flip-Ziffern tragen
+  `box-shadow` statt `filter: drop-shadow`.
+- Display-Größen in `Inter Display` mit Fallback auf `Inter`.
+- `scripts/screenshot-states.py`: Playwright-Rendering aller Faces und Zustände
+  gegen den Demo-Server (Entwicklungshilfe, kein Ship-Gate).
+
 ### Hinzugefügt
 
 - **Schnellmenü** (Wisch nach oben oder Tipp auf den Griff am unteren Rand):

@@ -494,6 +494,7 @@ class SpotifyMapperTest(unittest.TestCase):
             "subtitle": "Artist",
             "image_url": "small.jpg",
             "kind": "track",
+            "duration_ms": None,
         })
         self.assertEqual(items[1]["subtitle"], "Mein Podcast")
         self.assertEqual(items[1]["kind"], "episode")
@@ -635,6 +636,7 @@ class SpotifyQueueTest(unittest.TestCase):
                     "subtitle": "Künstler",
                     "image_url": None,
                     "kind": "track",
+                    "duration_ms": None,
                 }
             ],
         )

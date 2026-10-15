@@ -73,6 +73,7 @@ def compute_row_budget(
     max_rows: int,
     *,
     section_has_label: Sequence[bool],
+    section_extra_rows: Sequence[int] | None = None,
 ) -> list[int]:
     """Distribute ``max_rows`` across calendar sections with label overhead.
 
@@ -91,6 +92,10 @@ def compute_row_budget(
             row. In the shipping UI this is ``True`` for every section —
             ``compute_day_label`` returns "Heute · <Wochentag>" for today too,
             so today gets a header row like every other day.
+        section_extra_rows: extra rows a section costs while it shows at
+            least one item. Homescreen v2 renders the next upcoming event
+            as a taller highlighted row, so its section carries ``1`` here.
+            ``None`` means no extras anywhere.
 
     Returns:
         A list of allocated item counts, same length as the input. Sections
@@ -108,13 +113,17 @@ def compute_row_budget(
             "section_has_label length must match section_item_counts"
         )
 
+    extras = [0] * n if section_extra_rows is None else [max(0, int(x)) for x in section_extra_rows]
+    if len(extras) != n:
+        raise ValueError("section_extra_rows length must match section_item_counts")
+
     allocated = [max(0, int(count)) for count in section_item_counts]
 
     def total_rows() -> int:
         total = 0
         for i in range(n):
             if allocated[i] > 0:
-                total += allocated[i]
+                total += allocated[i] + extras[i]
                 if section_has_label[i]:
                     total += 1
         return total

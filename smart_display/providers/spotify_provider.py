@@ -47,10 +47,10 @@ _DEMO_PLAYLISTS: list[dict[str, Any]] = [
     {"uri": "spotify:playlist:demo6", "name": "Jazz Klassiker", "image_url": None, "track_count": 90},
 ]
 _DEMO_QUEUE: list[dict[str, Any]] = [
-    {"title": "Idioteque", "subtitle": "Radiohead", "image_url": None, "kind": "track"},
-    {"title": "Morning Bell", "subtitle": "Radiohead", "image_url": None, "kind": "track"},
-    {"title": "Motion Picture Soundtrack", "subtitle": "Radiohead", "image_url": None, "kind": "track"},
-    {"title": "Untitled", "subtitle": "Radiohead", "image_url": None, "kind": "track"},
+    {"title": "Idioteque", "subtitle": "Radiohead", "image_url": None, "kind": "track", "duration_ms": 309_000},
+    {"title": "Morning Bell", "subtitle": "Radiohead", "image_url": None, "kind": "track", "duration_ms": 275_000},
+    {"title": "Motion Picture Soundtrack", "subtitle": "Radiohead", "image_url": None, "kind": "track", "duration_ms": 421_000},
+    {"title": "Untitled", "subtitle": "Radiohead", "image_url": None, "kind": "track", "duration_ms": 58_000},
 ]
 
 
@@ -148,12 +148,15 @@ def map_spotify_queue(raw: Any) -> list[dict[str, Any]]:
             subtitle = "Spotify"
             image_url = _smallest_image_url(item.get("images"))
 
+        duration = item.get("duration_ms")
         items.append(
             {
                 "title": title,
                 "subtitle": subtitle,
                 "image_url": image_url,
                 "kind": kind,
+                # Shown as m:ss at the end of the queue row; None hides it.
+                "duration_ms": int(duration) if isinstance(duration, (int, float)) else None,
             }
         )
         if len(items) >= _QUEUE_ITEM_LIMIT:
