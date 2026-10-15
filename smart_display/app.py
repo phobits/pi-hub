@@ -259,8 +259,11 @@ def serve_app(app: Flask) -> None:
     sd_notify.notify("READY=1")
     interval = sd_notify.watchdog_interval_seconds()
     if interval is not None:
+        # Probe the host Waitress actually bound (#4): with APP_HOST=::1 a
+        # hard-coded 127.0.0.1 never answers and systemd would restart the
+        # service on every WatchdogSec.
         pinger = sd_notify.WatchdogPinger(
-            interval=interval, host="127.0.0.1", port=config.app.port
+            interval=interval, host=host, port=config.app.port
         )
         pinger.start()
         app.extensions["smart_display"]["watchdog"] = pinger

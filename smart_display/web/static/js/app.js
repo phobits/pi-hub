@@ -1865,47 +1865,48 @@
     }, Math.max((config.poll_interval_seconds || 15) * 1000, 5000));
   }
 
-  async function postAction(endpoint) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body || body.ok === false) {
-        return { ok: false, message: (body && body.message) || "Netzwerkfehler.", state: null };
-      }
+  // One shape for every control endpoint ({ok, message, state?, timers?}),
+  // plus the HTTP status so callers can branch on 404 instead of on message
+  // text. A thrown fetch reports status 0.
+  function shapeResult(response, body) {
+    if (!response.ok || !body || body.ok === false) {
       return {
-        ok: true,
-        message: body.message || "ok",
-        state: body.state || null,
-        timers: Array.isArray(body.timers) ? body.timers : null,
+        ok: false,
+        status: response.status,
+        message: (body && body.message) || "Netzwerkfehler.",
+        state: null,
+        timers: null,
       };
+    }
+    return {
+      ok: true,
+      status: response.status,
+      message: body.message || "ok",
+      state: body.state || null,
+      timers: Array.isArray(body.timers) ? body.timers : null,
+    };
+  }
+
+  async function postRequest(endpoint, payload) {
+    try {
+      const init = { method: "POST", headers: { "Content-Type": "application/json" } };
+      if (payload !== undefined) {
+        init.body = JSON.stringify(payload);
+      }
+      const response = await fetch(endpoint, init);
+      const body = await response.json().catch(() => null);
+      return shapeResult(response, body);
     } catch (error) {
-      return { ok: false, message: "Netzwerkfehler.", state: null };
+      return { ok: false, status: 0, message: "Netzwerkfehler.", state: null, timers: null };
     }
   }
 
-  async function postJson(endpoint, payload) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body || body.ok === false) {
-        return { ok: false, message: (body && body.message) || "Netzwerkfehler.", state: null };
-      }
-      return {
-        ok: true,
-        message: body.message || "ok",
-        state: body.state || null,
-        timers: Array.isArray(body.timers) ? body.timers : null,
-      };
-    } catch (error) {
-      return { ok: false, message: "Netzwerkfehler.", state: null };
-    }
+  function postAction(endpoint) {
+    return postRequest(endpoint);
+  }
+
+  function postJson(endpoint, payload) {
+    return postRequest(endpoint, payload);
   }
 
   function applySpotifyState(spotifyState) {
@@ -2667,9 +2668,16 @@
   // ---- Night window (Ticket #2) ------------------------------------------
   // Mirrors smart_display/night.py. The server renders data-night for the
   // first frame; from then on the minute tick re-evaluates here.
+  // 1:1 mirror of night.parse_hhmm: split on the FIRST colon only, so
+  // "1:2:3" is rejected (its minutes part "2:3" is not all digits) exactly
+  // as Python's split(":", 1) + isdigit() rejects it (#4).
   function parseHhmm(value) {
-    if (typeof value !== "string" || !value.includes(":")) return null;
-    const [h, m] = value.trim().split(":");
+    if (typeof value !== "string") return null;
+    const text = value.trim();
+    const colon = text.indexOf(":");
+    if (colon < 0) return null;
+    const h = text.slice(0, colon);
+    const m = text.slice(colon + 1);
     if (!/^\d+$/.test(h) || !/^\d+$/.test(m)) return null;
     const hours = Number(h);
     const minutes = Number(m);
@@ -3038,7 +3046,9 @@
     const result = payload
       ? await postJson(`/api/timers/${encodeURIComponent(timerId)}/${action}`, payload)
       : await postAction(`/api/timers/${encodeURIComponent(timerId)}/${action}`);
-    if (!result.ok && result.message !== "Timer nicht gefunden.") {
+    // 404 = the timer is already gone on the server; the local dismissal was
+    // right. Anything else rolls it back.
+    if (!result.ok && result.status !== 404) {
       dismissedLocally.delete(timerId);
       showToast(result.message || "Timer-Aktion fehlgeschlagen.");
     }

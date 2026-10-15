@@ -30,7 +30,7 @@ class NotifyTest(unittest.TestCase):
 
 class WatchdogIntervalTest(unittest.TestCase):
     def test_half_of_watchdog_usec(self) -> None:
-        self.assertEqual(sd_notify.watchdog_interval_seconds({"WATCHDOG_USEC": "90000000"}), 45.0)
+        self.assertEqual(sd_notify.watchdog_interval_seconds({"WATCHDOG_USEC": "90000000"}), 30.0)
 
     def test_unset_or_invalid(self) -> None:
         self.assertIsNone(sd_notify.watchdog_interval_seconds({}))
@@ -41,7 +41,7 @@ class WatchdogIntervalTest(unittest.TestCase):
         env = {"WATCHDOG_USEC": "90000000", "WATCHDOG_PID": str(os.getpid() + 1)}
         self.assertIsNone(sd_notify.watchdog_interval_seconds(env))
         env["WATCHDOG_PID"] = str(os.getpid())
-        self.assertEqual(sd_notify.watchdog_interval_seconds(env), 45.0)
+        self.assertEqual(sd_notify.watchdog_interval_seconds(env), 30.0)
 
 
 class WatchdogPingerTest(unittest.TestCase):

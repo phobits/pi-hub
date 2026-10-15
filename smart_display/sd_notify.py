@@ -45,8 +45,11 @@ def notify(message: str, *, environ: dict[str, str] | None = None) -> bool:
 
 
 def watchdog_interval_seconds(environ: dict[str, str] | None = None) -> float | None:
-    """Half of ``WATCHDOG_USEC`` (systemd's recommended ping cadence), or
-    ``None`` when no watchdog is configured for this process."""
+    """A third of ``WATCHDOG_USEC``, or ``None`` when no watchdog is
+    configured for this process. A third, not systemd's usual half (#4): one
+    /health probe may lose the race against four busy Waitress workers, and
+    at half the period a single miss is already a restart. At a third the
+    service survives one missed probe and dies on two in a row."""
     env = environ if environ is not None else os.environ
     raw = env.get("WATCHDOG_USEC")
     if not raw:
@@ -60,7 +63,7 @@ def watchdog_interval_seconds(environ: dict[str, str] | None = None) -> float | 
         return None
     if usec <= 0:
         return None
-    return max(1.0, usec / 1_000_000 / 2)
+    return max(1.0, usec / 1_000_000 / 3)
 
 
 def probe_health(host: str, port: int, timeout: float) -> bool:

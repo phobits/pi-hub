@@ -82,6 +82,9 @@ class TimerRoutesTest(unittest.TestCase):
             self.assertEqual(client.get("/api/state").get_json()["timers"], [])
 
             self.assertEqual(client.post(f"/api/timers/{timer_id}/cancel").status_code, 404)
+            # #4: every timer route says 404 for an unknown id, 400 for bad input.
+            self.assertEqual(client.post(f"/api/timers/{timer_id}/extend", json={"seconds": 60}).status_code, 404)
+            self.assertEqual(client.post(f"/api/timers/{timer_id}/dismiss").status_code, 404)
             self.assertEqual(client.post("/api/timers", json={"duration_seconds": 1}).status_code, 400)
 
     def test_index_carries_night_and_shutdown_flags(self) -> None:

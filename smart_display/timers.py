@@ -90,16 +90,16 @@ class TimerService:
         )
         live.append(timer)
         self._store.set_timers(live)
-        return self._ok(now, message="Timer gestartet.")
+        return self._ok(now, live, message="Timer gestartet.")
 
     def cancel(self, timer_id: str) -> dict[str, Any]:
         now = self._clock()
         live = self._live_timers(now)
         remaining = [timer for timer in live if timer.id != timer_id]
         if len(remaining) == len(live):
-            return self._fail("Timer nicht gefunden.")
+            return self._not_found()
         self._store.set_timers(remaining)
-        return self._ok(now, message="Timer abgebrochen.")
+        return self._ok(now, remaining, message="Timer abgebrochen.")
 
     def dismiss(self, timer_id: str) -> dict[str, Any]:
         now = self._clock()
@@ -110,9 +110,10 @@ class TimerService:
                 timer.dismissed = True
                 found = True
         if not found:
-            return self._fail("Timer nicht gefunden.")
-        self._store.set_timers([t for t in live if not t.dismissed])
-        return self._ok(now, message="Timer beendet.")
+            return self._not_found()
+        kept = [t for t in live if not t.dismissed]
+        self._store.set_timers(kept)
+        return self._ok(now, kept, message="Timer beendet.")
 
     def extend(self, timer_id: str, seconds: Any) -> dict[str, Any]:
         try:
@@ -134,8 +135,8 @@ class TimerService:
             timer.ends_at = new_end
             timer.duration_seconds = int(round(new_end - timer.created_at))
             self._store.set_timers(live)
-            return self._ok(now, message="Timer verlängert.")
-        return self._fail("Timer nicht gefunden.")
+            return self._ok(now, live, message="Timer verlängert.")
+        return self._not_found()
 
     # ---- internals -----------------------------------------------------------
 
@@ -154,9 +155,26 @@ class TimerService:
                 return candidate
         raise RuntimeError("could not allocate a unique timer id")
 
-    def _ok(self, now: float, *, message: str) -> dict[str, Any]:
-        return {"ok": True, "message": message, "timers": self.list()}
+    @staticmethod
+    def _ok(now: float, live: list[TimerState], *, message: str) -> dict[str, Any]:
+        # Describe the list the mutation just wrote, at the mutation's own
+        # ``now`` — no second store read, no second clock read (#4).
+        return {
+            "ok": True,
+            "message": message,
+            "timers": [
+                describe(timer, now)
+                for timer in live
+                if timer_status(timer, now) != "done"
+            ],
+        }
 
     @staticmethod
     def _fail(message: str) -> dict[str, Any]:
         return {"ok": False, "message": message}
+
+    @staticmethod
+    def _not_found() -> dict[str, Any]:
+        # ``not_found`` lets the route pick 404 without matching the German
+        # text, and the client branch on the status instead of the text (#4).
+        return {"ok": False, "message": "Timer nicht gefunden.", "not_found": True}

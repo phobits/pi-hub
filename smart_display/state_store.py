@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
@@ -58,7 +57,7 @@ class StateStore:
         self._lock = threading.Lock()
         self._cache = DiskCache(config.last_good_path)
         self._monotonic = monotonic or time.monotonic
-        self._last_persisted_key: str | None = None
+        self._last_persisted_key: Any = None
         self._last_persisted_at: float = float("-inf")
         self._dirty = False
         self._state = self._load_initial_state()
@@ -170,9 +169,11 @@ class StateStore:
 
     def _persist_locked(self, *, force: bool = False) -> None:
         payload = self._state.to_dict()
-        key = json.dumps(
-            _strip_volatile(payload), sort_keys=True, separators=(",", ":")
-        )
+        # The debounce key is the stripped tree itself: a dict comparison walks
+        # the same nodes json.dumps would, without building a second string
+        # of the whole state on every mutation (#4). DiskCache.save does the
+        # one serialisation that is actually written.
+        key = _strip_volatile(payload)
         now = self._monotonic()
         unchanged = key == self._last_persisted_key
         recent = now - self._last_persisted_at < PERSIST_MIN_INTERVAL_SECONDS

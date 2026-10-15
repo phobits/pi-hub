@@ -40,6 +40,17 @@ Commit einzeln aufzuführen.
 - `scripts/screenshot-states.py`: Playwright-Rendering aller Faces und Zustände
   gegen den Demo-Server (Entwicklungshilfe, kein Ship-Gate).
 
+### Behoben
+
+- Review-Befunde aus #4: Watchdog-Ping prüft den konfigurierten Host statt
+  immer `127.0.0.1`; Ping-Kadenz `WATCHDOG_USEC/3` statt `/2`, damit ein
+  verpasster Health-Probe keinen Neustart auslöst; „Timer nicht gefunden“
+  liefert auf allen Timer-Routen 404 und das Frontend prüft den Status statt
+  den Text; `StateStore` serialisiert pro Mutation nur noch einmal;
+  `parseHhmm` spiegelt `night.parse_hhmm` exakt; `postAction`/`postJson`
+  teilen sich eine Hilfsfunktion; `TimerService` liest Store und Uhr nicht
+  mehr doppelt.
+
 ### Hinzugefügt
 
 - **Schnellmenü** (Wisch nach oben oder Tipp auf den Griff am unteren Rand):

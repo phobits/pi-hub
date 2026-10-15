@@ -117,6 +117,11 @@ def create_blueprint() -> Blueprint:
 
     # ---- Timers (Ticket #3) ---------------------------------------------------
 
+    def _timer_status(result: dict) -> int:
+        if result.get("ok"):
+            return 200
+        return 404 if result.get("not_found") else 400
+
     @blueprint.post("/api/timers")
     @local_only
     def timers_create():
@@ -125,21 +130,21 @@ def create_blueprint() -> Blueprint:
         result = services["timer_service"].create(
             payload.get("duration_seconds"), payload.get("label", "")
         )
-        return jsonify(result), (200 if result.get("ok") else 400)
+        return jsonify(result), _timer_status(result)
 
     @blueprint.post("/api/timers/<timer_id>/cancel")
     @local_only
     def timers_cancel(timer_id: str):
         services = current_app.extensions["smart_display"]
         result = services["timer_service"].cancel(timer_id)
-        return jsonify(result), (200 if result.get("ok") else 404)
+        return jsonify(result), _timer_status(result)
 
     @blueprint.post("/api/timers/<timer_id>/dismiss")
     @local_only
     def timers_dismiss(timer_id: str):
         services = current_app.extensions["smart_display"]
         result = services["timer_service"].dismiss(timer_id)
-        return jsonify(result), (200 if result.get("ok") else 404)
+        return jsonify(result), _timer_status(result)
 
     @blueprint.post("/api/timers/<timer_id>/extend")
     @local_only
@@ -147,7 +152,7 @@ def create_blueprint() -> Blueprint:
         services = current_app.extensions["smart_display"]
         payload = request.get_json(silent=True) or {}
         result = services["timer_service"].extend(timer_id, payload.get("seconds"))
-        return jsonify(result), (200 if result.get("ok") else 400)
+        return jsonify(result), _timer_status(result)
 
     # ---- Power (Ticket #2) ----------------------------------------------------
 
