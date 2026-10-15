@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Homescreen v2 – Mockup</title>
+<style>
+/* =====================================================================
+   Homescreen v2 — Mockup. Fixed canvas 1024×600, one set of values,
+   no responsive layers, no vw-clamps. Inter / Inter Display.
+   ===================================================================== */
+:root {
+  --bg: #07090c;
+  --ink: #f4f6f8;
+  --ink-2: rgba(244, 246, 248, 0.64);
+  --ink-3: rgba(244, 246, 248, 0.40);
+  --hair: rgba(255, 255, 255, 0.09);
+  --surface: rgba(255, 255, 255, 0.055);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  --amber: #f3c46b;
+  --lcd: #ffb25b;
+  --r-lg: 22px;
+  --r-md: 16px;
+  --col-gap: 32px;
+  --pad-x: 32px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 1024px; height: 600px; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Inter", "Noto Sans Display", sans-serif;
+  font-feature-settings: "tnum" 1, "cv11" 1;
+  -webkit-font-smoothing: antialiased;
+}
+/* Ambient tint: static, two radial gradients, nothing animates. */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(900px 520px at 8% -10%, rgba(96, 130, 180, 0.16), transparent 60%),
+    radial-gradient(700px 420px at 100% 110%, rgba(180, 140, 100, 0.10), transparent 60%);
+}
+body[data-night="true"] { --bg: #000; --ink: #aeb5bd; --ink-2: rgba(174,181,189,.58); --ink-3: rgba(174,181,189,.36); --hair: rgba(255,255,255,.06); --surface: rgba(255,255,255,.04); --surface-2: rgba(255,255,255,.07); --amber: #b89654; --lcd: #a7772f; }
+body[data-night="true"]::before { display: none; }
+
+.home {
+  position: relative;
+  display: grid;
+  grid-template-columns: 612px 328px;
+  column-gap: var(--col-gap);
+  height: 100%;
+  padding: 26px var(--pad-x) 22px;
+}
+/* hairline between the columns */
+.home::after {
+  content: ""; position: absolute; top: 44px; bottom: 44px; left: calc(var(--pad-x) + 612px + var(--col-gap) / 2);
+  width: 1px; background: var(--hair);
+}
+
+/* ---------- Left: clock + weather ---------------------------------- */
+.glance { display: grid; grid-template-rows: 300px 40px 1fr; row-gap: 0; min-height: 0; }
+body[data-face="qlocktwo"] .glance,
+body[data-face="qlocktwo-ooe"] .glance,
+body[data-face="analog"] .glance { grid-template-rows: 376px 40px 1fr; }
+
+.clock { display: flex; align-items: center; justify-content: center; min-height: 0; }
+.clock > * { display: none; }
+body[data-face="flip"] .clock .f-flip { display: flex; }
+body[data-face="pulse"] .clock .f-pulse { display: block; }
+body[data-face="lcd"] .clock .f-lcd { display: block; }
+body[data-face="qlocktwo"] .clock .f-q1 { display: grid; }
+body[data-face="qlocktwo-ooe"] .clock .f-q2 { display: grid; }
+body[data-face="analog"] .clock .f-analog { display: block; }
+
+.date {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  font-size: 22px; font-weight: 500; color: var(--ink-2); letter-spacing: 0.005em;
+}
+.date .hint { color: var(--amber); font-size: 16px; font-weight: 500; }
+
+/* Flip */
+.f-flip { gap: 10px; align-items: center; }
+.f-flip .d {
+  position: relative; width: 122px; height: 200px; border-radius: 14px;
+  background: linear-gradient(180deg, #1c222b 0%, #12171e 100%);
+  box-shadow: 0 14px 30px rgba(0,0,0,.4);
+  font-family: "Inter Display", "Inter", sans-serif;
+  font-size: 168px; font-weight: 600; letter-spacing: -0.04em; line-height: 200px; text-align: center;
+}
+.f-flip .d::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(0,0,0,.55); box-shadow: 0 1px 0 rgba(255,255,255,.04); }
+.f-flip .sep { display: flex; flex-direction: column; gap: 30px; padding: 0 6px; }
+.f-flip .sep i { width: 16px; height: 16px; border-radius: 50%; background: rgba(244,246,248,.78); }
+body[data-night="true"] .f-flip .d { background: #0c0f13; box-shadow: none; }
+
+/* Pulse */
+.f-pulse {
+  font-family: "Inter Display", "Inter", sans-serif;
+  font-size: 236px; font-weight: 600; letter-spacing: -0.05em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.f-pulse .c { opacity: .55; }
+
+/* LCD */
+.f-lcd { width: 560px; height: 224px; }
+.f-lcd rect { fill: rgba(216,231,255,.06); }
+.f-lcd rect.on, .f-lcd circle { fill: var(--lcd); }
+
+/* QLOCKTWO */
+.f-q1, .f-q2 {
+  width: 376px; height: 376px; grid-template-rows: repeat(10, 1fr);
+  font-weight: 600; font-size: 27px; letter-spacing: .06em; color: rgba(255,255,255,.14);
+}
+.f-q1 .r, .f-q2 .r { display: grid; grid-template-columns: repeat(11, 1fr); }
+.f-q1 .r span, .f-q2 .r span { display: flex; align-items: center; justify-content: center; }
+.f-q1 .r span.on, .f-q2 .r span.on { color: var(--ink); text-shadow: 0 0 16px rgba(216,231,255,.32); }
+body[data-night="true"] .f-q1 .r span.on { text-shadow: none; }
+
+/* Analog */
+.f-analog { width: 360px; height: 360px; }
+.f-analog .face { fill: rgba(255,255,255,.025); stroke: rgba(255,255,255,.12); stroke-width: 1; }
+.f-analog .th { stroke: rgba(216,231,255,.6); stroke-width: 3.2; stroke-linecap: round; }
+.f-analog .tm { stroke: rgba(216,231,255,.22); stroke-width: 1.2; stroke-linecap: round; }
+.f-analog .hh { stroke: var(--ink); stroke-width: 6; stroke-linecap: round; }
+.f-analog .hm { stroke: var(--ink); stroke-width: 4; stroke-linecap: round; opacity: .92; }
+.f-analog .hs { stroke: #ff8a5b; stroke-width: 1.6; stroke-linecap: round; }
+.f-analog .pv { fill: var(--ink); stroke: #0b0d10; stroke-width: 1.4; }
+
+/* Weather */
+.weather { display: grid; grid-template-columns: 1fr; align-content: end; row-gap: 18px; padding-top: 26px; }
+.now { display: grid; grid-template-columns: auto auto 1fr; align-items: center; column-gap: 18px; }
+.now .t {
+  font-family: "Inter Display", "Inter", sans-serif;
+  font-size: 72px; font-weight: 600; letter-spacing: -0.045em; line-height: .9;
+}
+.now .ic { width: 52px; height: 52px; color: var(--ink); }
+.now .ic svg { width: 100%; height: 100%; display: block; }
+.now .cond { font-size: 24px; font-weight: 500; line-height: 1.15; }
+.now .sub { margin-top: 5px; font-size: 17px; color: var(--ink-2); }
+.now .sub .stale { color: var(--amber); }
+.days { display: grid; grid-template-columns: repeat(3, 1fr); column-gap: 10px; }
+.day {
+  display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; align-items: center;
+  padding: 12px 16px 11px; border-radius: var(--r-md); background: var(--surface);
+}
+.day .n { font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.day .i { grid-row: 1 / 3; width: 26px; height: 26px; color: var(--ink); }
+.day .i svg { width: 100%; height: 100%; display: block; }
+.day .tt { margin-top: 6px; font-size: 22px; font-weight: 600; line-height: 1; }
+.day .tt small { margin-left: 6px; font-size: 16px; font-weight: 500; color: var(--ink-2); }
+
+/* Compact weather (square faces): one line, forecast inline */
+body[data-face="qlocktwo"] .weather, body[data-face="qlocktwo-ooe"] .weather, body[data-face="analog"] .weather { grid-template-columns: auto 1fr; column-gap: 28px; align-items: center; padding-top: 16px; }
+body[data-face="qlocktwo"] .now .t, body[data-face="qlocktwo-ooe"] .now .t, body[data-face="analog"] .now .t { font-size: 56px; }
+body[data-face="qlocktwo"] .now .ic, body[data-face="qlocktwo-ooe"] .now .ic, body[data-face="analog"] .now .ic { width: 40px; height: 40px; }
+body[data-face="qlocktwo"] .now .cond, body[data-face="qlocktwo-ooe"] .now .cond, body[data-face="analog"] .now .cond { font-size: 20px; }
+body[data-face="qlocktwo"] .now .sub, body[data-face="qlocktwo-ooe"] .now .sub, body[data-face="analog"] .now .sub { font-size: 15px; margin-top: 3px; white-space: nowrap; }
+body[data-face="qlocktwo"] .days, body[data-face="qlocktwo-ooe"] .days, body[data-face="analog"] .days { column-gap: 8px; }
+body[data-face="qlocktwo"] .day, body[data-face="qlocktwo-ooe"] .day, body[data-face="analog"] .day { padding: 8px 12px 7px; background: transparent; border-left: 1px solid var(--hair); border-radius: 0; }
+body[data-face="qlocktwo"] .day .tt, body[data-face="qlocktwo-ooe"] .day .tt, body[data-face="analog"] .day .tt { font-size: 19px; margin-top: 4px; }
+body[data-face="qlocktwo"] .day .i, body[data-face="qlocktwo-ooe"] .day .i, body[data-face="analog"] .day .i { width: 22px; height: 22px; }
+
+/* ---------- Right: agenda + music ---------------------------------- */
+.side { display: grid; grid-template-rows: 36px minmax(0, 1fr) var(--music-h, 96px); row-gap: 14px; min-height: 0; }
+body[data-music="idle"] .side { --music-h: 60px; }
+
+.rail { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 10px;
+  border-radius: 999px; background: rgba(243,196,107,.14); border: 1px solid rgba(243,196,107,.35);
+  color: var(--ink); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.chip svg { width: 18px; height: 18px; color: var(--amber); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); opacity: .9; }
+.rail .lbl { font-size: 15px; font-weight: 500; color: var(--ink-3); }
+
+.agenda { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+.agenda > * { flex: 0 0 auto; }
+.sec { display: flex; align-items: baseline; gap: 8px; padding: 10px 2px 4px; font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.sec:first-child { padding-top: 0; }
+.sec b { color: var(--ink); font-weight: 600; }
+.ev { display: grid; grid-template-columns: 112px 1fr; column-gap: 10px; align-items: baseline; padding: 7px 2px; }
+.ev .tm { font-size: 18px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.ev .ti { font-size: 21px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev.past { opacity: .38; }
+/* next up */
+.next {
+  display: grid; grid-template-columns: 1fr; row-gap: 2px; padding: 12px 16px 13px;
+  border-radius: var(--r-md); background: var(--surface); position: relative; overflow: hidden;
+}
+.next::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--ink); opacity: .85; }
+.next .k { display: flex; justify-content: space-between; font-size: 15px; font-weight: 600; color: var(--ink-2); }
+.next .k em { font-style: normal; color: var(--ink); }
+.next .ti { font-size: 24px; font-weight: 600; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { padding: 14px 16px; border-radius: var(--r-md); background: var(--surface); color: var(--ink-2); font-size: 18px; }
+.empty .e2 { margin-top: 4px; font-size: 15px; color: var(--ink-3); }
+
+.music {
+  position: relative; display: grid; grid-template-columns: 72px 1fr; column-gap: 14px; align-items: center;
+  padding: 12px 14px 12px 12px; border-radius: var(--r-lg); background: var(--surface); overflow: hidden;
+}
+.music .art { width: 72px; height: 72px; border-radius: 12px; background: linear-gradient(145deg,#4c5a6b,#1b2129); box-shadow: 0 6px 16px rgba(0,0,0,.35); }
+.music .meta { display: block; min-width: 0; }
+.music .t1, .music .t2 { display: block; }
+.music .t1 { font-size: 18px; font-weight: 600; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music .t2 { margin-top: 2px; font-size: 15px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music .eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 12px; margin-right: 8px; vertical-align: -1px; }
+.music .eq i { width: 3px; background: var(--ink); border-radius: 1px; }
+.music .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.12); }
+.music .bar i { display: block; height: 100%; width: 29%; background: var(--ink); }
+body[data-music="idle"] .music { grid-template-columns: 36px 1fr; padding: 10px 16px; }
+body[data-music="idle"] .music .art { width: 36px; height: 36px; border-radius: 50%; background: var(--surface-2); box-shadow: none; display: flex; align-items: center; justify-content: center; }
+body[data-music="idle"] .music .art svg { width: 16px; height: 16px; color: var(--ink); }
+body[data-music="idle"] .music .bar, body[data-music="idle"] .music .t2, body[data-music="idle"] .music .eq { display: none; }
+body[data-music="idle"] .music .t1 { font-size: 18px; font-weight: 500; }
+body[data-music="error"] .music .t2 { color: var(--amber); }
+
+/* grip (quick sheet) */
+.grip { position: fixed; left: 50%; bottom: 7px; width: 44px; height: 4px; margin-left: -22px; border-radius: 99px; background: rgba(255,255,255,.2); }
+</style>
+</head>
+<body data-face="flip" data-music="playing" data-night="false">
+<div class="home">
+  <section class="glance">
+    <div class="clock">
+      <div class="f-flip"><div class="d">1</div><div class="d">7</div><div class="sep"><i></i><i></i></div><div class="d">4</div><div class="d">2</div></div>
+      <div class="f-pulse">17<span class="c">:</span>42</div>
+      <svg class="f-lcd" viewBox="0 0 400 160" id="lcd"></svg>
+      <div class="f-q1" id="q1"></div>
+      <div class="f-q2" id="q2"></div>
+      <svg class="f-analog" viewBox="0 0 200 200">
+        <circle class="face" cx="100" cy="100" r="94"/>
+        <g id="ticks"></g>
+        <line class="hh" x1="100" y1="112" x2="100" y2="52" transform="rotate(171 100 100)"/>
+        <line class="hm" x1="100" y1="116" x2="100" y2="26" transform="rotate(252 100 100)"/>
+        <line class="hs" x1="100" y1="120" x2="100" y2="20" transform="rotate(66 100 100)"/>
+        <circle class="pv" cx="100" cy="100" r="5"/>
+      </svg>
+    </div>
+    <div class="date"><span>Donnerstag, 15. Oktober</span><span class="hint" id="hint" hidden>· Uhr wird gestellt …</span></div>
+    <section class="weather">
+      <div class="now">
+        <div class="t">14°</div>
+        <div class="ic" id="ic-now"></div>
+        <div><div class="cond">Bewölkt</div><div class="sub" id="sub">Gefühlt 12° · Wien</div></div>
+      </div>
+      <div class="days" id="days"></div>
+    </section>
+  </section>
+
+  <section class="side">
+    <div class="rail" id="rail"></div>
+    <div class="agenda" id="agenda"></div>
+    <button class="music" id="music" style="border:0;color:inherit;font:inherit;text-align:left;cursor:pointer">
+      <span class="art" id="art"></span>
+      <span class="meta"><span class="t1" id="t1">Everything In Its Right Place</span><span class="t2" id="t2">Radiohead · Wohnzimmer</span></span>
+      <span class="bar"><i></i></span>
+    </button>
+  </section>
+</div>
+<div class="grip"></div>
+
+<script>
+const q = new URLSearchParams(location.search);
+const face = q.get("face") || "flip";
+const music = q.get("music") || "playing";
+const night = q.get("night") === "1";
+const state = q.get("state") || "normal";  // normal | timer | stale | empty | offline | sync
+document.body.dataset.face = face; document.body.dataset.music = music; document.body.dataset.night = String(night);
+
+const ICON = {
+  cloudy: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 23h14a5 5 0 0 0 .6-9.96A7 7 0 0 0 10.2 15.1 4 4 0 0 0 9 23z"/></svg>',
+  partly: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="11" r="4"/><path d="M12 3v2M4 11h2M6.3 5.3l1.4 1.4M17.7 5.3l-1.4 1.4"/><path d="M11 25h12a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 12 17.5 3.75 3.75 0 0 0 11 25z"/></svg>',
+  clear: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="16" cy="16" r="6"/><path d="M16 4v3M16 25v3M4 16h3M25 16h3M7.5 7.5l2.1 2.1M22.4 22.4l2.1 2.1M7.5 24.5l2.1-2.1M22.4 9.6l2.1-2.1"/></svg>',
+  rain: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19h14a5 5 0 0 0 .6-9.96A7 7 0 0 0 10.2 11.1 4 4 0 0 0 9 19z"/><path d="M11 23l-1.5 3M16 23l-1.5 3M21 23l-1.5 3"/></svg>',
+  play: '<svg viewBox="0 0 32 32" fill="currentColor"><path d="M11 8.5v15l12-7.5z"/></svg>',
+  timer: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="16" cy="18" r="10"/><path d="M16 12v6l4 2M13 4h6M16 4v4"/></svg>',
+};
+document.getElementById("ic-now").innerHTML = ICON.cloudy;
+const days = [["Heute","cloudy",16,9],["Morgen","partly",18,8],["Sa.","rain",12,7]];
+document.getElementById("days").innerHTML = days.map(([n,i,a,b]) =>
+  `<div class="day"><div class="n">${n}</div><div class="i">${ICON[i]}</div><div class="tt">${a}°<small>${b}°</small></div></div>`).join("");
+
+// Agenda
+const ag = document.getElementById("agenda");
+if (state === "empty") {
+  ag.innerHTML = `<div class="sec"><b>Heute</b> · Donnerstag</div><div class="empty">Keine Termine<div class="e2">Auch morgen und Samstag ist nichts eingetragen.</div></div>`;
+} else if (state === "offline") {
+  ag.innerHTML = `<div class="sec"><b>Heute</b> · Donnerstag</div>
+    <div class="ev past"><span class="tm">09:00–09:30</span><span class="ti">Stand-up</span></div>
+    <div class="next"><div class="k"><span>18:30–20:00</span><em>in 48 Min</em></div><div class="ti">Abendessen mit Anna</div></div>
+    <div class="ev"><span class="tm">21:00</span><span class="ti">Tatort aufnehmen</span></div>
+    <div class="sec"><b>Morgen</b> · Freitag</div>
+    <div class="ev"><span class="tm">09:00–10:30</span><span class="ti">Fokusblock Quartalsplanung</span></div>
+    <div class="ev"><span class="tm">14:00</span><span class="ti">Zahnarzt</span></div>`;
+} else {
+  ag.innerHTML = `<div class="sec"><b>Heute</b> · Donnerstag</div>
+    <div class="ev past"><span class="tm">09:00–09:30</span><span class="ti">Stand-up</span></div>
+    <div class="next"><div class="k"><span>18:30–20:00</span><em>in 48 Min</em></div><div class="ti">Abendessen mit Anna</div></div>
+    <div class="ev"><span class="tm">21:00</span><span class="ti">Tatort aufnehmen</span></div>
+    <div class="sec"><b>Morgen</b> · Freitag</div>
+    <div class="ev"><span class="tm">09:00–10:30</span><span class="ti">Fokusblock Quartalsplanung</span></div>
+    <div class="ev"><span class="tm">14:00</span><span class="ti">Zahnarzt</span></div>
+    ${music === "playing" ? "" : '<div class="sec"><b>Samstag</b></div><div class="ev"><span class="tm">Ganztägig</span><span class="ti">Lieferung Sofa</span></div>'}`;
+}
+// Rail
+const rail = document.getElementById("rail");
+let railHtml = "";
+if (state === "timer") railHtml += `<span class="chip">${ICON.timer}09:26</span>`;
+if (state === "offline") railHtml += `<span class="lbl">Offline · Stand 16:50</span><span class="dot"></span>`;
+rail.innerHTML = railHtml;
+const compact = ["qlocktwo","qlocktwo-ooe","analog"].includes(face);
+if (compact) document.getElementById("sub").textContent = "Gefühlt 12°";
+if (state === "stale") document.getElementById("sub").innerHTML = `Gefühlt 12° · <span class="stale">Stand 15:10</span>`;
+if (state === "sync") document.getElementById("hint").hidden = false;
+// Music
+if (music === "idle") { document.getElementById("art").innerHTML = ICON.play; document.getElementById("t1").textContent = "Musik starten"; }
+if (music === "error") { document.getElementById("t1").textContent = "Spotify"; document.getElementById("t2").textContent = "Nicht erreichbar · zuletzt 16:50"; }
+if (music === "playing") document.getElementById("t2").innerHTML = `<span class="eq"><i style="height:6px"></i><i style="height:12px"></i><i style="height:8px"></i></span>Radiohead · Wohnzimmer`;
+
+// LCD 17:42
+const SEG = {"0":"abcdef","1":"bc","2":"abdeg","3":"abcdg","4":"bcfg","5":"acdfg","6":"acdefg","7":"abc","8":"abcdefg","9":"abcdfg"};
+const RECTS = [["a",14,4,52,8],["b",66,14,8,52],["c",66,74,8,52],["d",14,128,52,8],["e",6,74,8,52],["f",6,14,8,52],["g",14,66,52,8]];
+const POS = [0,90,230,320]; const digits = "1742";
+let svg = "";
+POS.forEach((x,i)=>{ svg += `<g transform="translate(${x},8)">` + RECTS.map(([s,rx,ry,rw,rh])=>`<rect class="${SEG[digits[i]].includes(s)?'on':''}" x="${rx}" y="${ry}" width="${rw}" height="${rh}" rx="2"/>`).join("") + "</g>"; });
+svg += `<circle cx="210" cy="70" r="6"/><circle cx="210" cy="106" r="6"/>`;
+document.getElementById("lcd").innerHTML = svg;
+
+// QLOCKTWO 17:40 → ES IST ZWANZIG VOR SECHS
+const G1 = ["ESKISTAFÜNF","ZEHNZWANZIG","DREIVIERTEL","TGNACHVORJM","HALBQZWÖLFP","ZWEINSIEBEN","KDREIRHFÜNF","ELFNEUNVIER","WACHTZEHNRS","BSECHSFMUHR"];
+const ON1 = [[0,0,2],[0,3,3],[1,4,7],[3,6,3],[9,1,5]];
+const G2 = ["ESKISTAFÜMF","ZEHNAZWANZG","DREIVIERTLE","TGNOCHSVORM","HOIBEZWÖFEN","DREIKNEINEP","SIEBNEKFÜMF","OANSZWOAELF","WOCHTZEHNER","SECHSEVIERE"];
+const ON2 = [[0,0,2],[0,3,2],[1,5,6],[3,7,3],[9,0,6]];
+function grid(id,G,ON){ const on=new Set(); ON.forEach(([r,c,l])=>{for(let i=0;i<l;i++) on.add(r+","+(c+i));});
+  document.getElementById(id).innerHTML = G.map((row,r)=>`<div class="r">`+[...row].map((ch,c)=>`<span class="${on.has(r+","+c)?'on':''}">${ch}</span>`).join("")+`</div>`).join(""); }
+grid("q1",G1,ON1); grid("q2",G2,ON2);
+// analog ticks
+let t=""; for(let i=0;i<60;i++){ t += i%5===0 ? `<line class="th" x1="100" y1="12" x2="100" y2="24" transform="rotate(${i*6} 100 100)"/>` : `<line class="tm" x1="100" y1="12" x2="100" y2="18" transform="rotate(${i*6} 100 100)"/>`; }
+document.getElementById("ticks").innerHTML = t;
+</script>
+</body>
+</html>
