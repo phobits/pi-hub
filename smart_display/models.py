@@ -302,6 +302,42 @@ class SystemState:
 
 
 @dataclass(slots=True)
+class TimerState:
+    """A countdown timer (Ticket #3). ``ends_at`` is wall-clock epoch seconds —
+    browser and backend share the Pi's clock, so the UI counts down from it
+    without any round trip. Status is derived, never stored:
+    running (now < ends_at) → ringing (until dismissed or RING_TIMEOUT) → done."""
+
+    id: str
+    label: str
+    duration_seconds: int
+    ends_at: float
+    created_at: float
+    dismissed: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "duration_seconds": self.duration_seconds,
+            "ends_at": self.ends_at,
+            "created_at": self.created_at,
+            "dismissed": self.dismissed,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TimerState":
+        return cls(
+            id=str(data.get("id", "")),
+            label=str(data.get("label", "")),
+            duration_seconds=int(data.get("duration_seconds", 0) or 0),
+            ends_at=float(data.get("ends_at", 0.0) or 0.0),
+            created_at=float(data.get("created_at", 0.0) or 0.0),
+            dismissed=bool(data.get("dismissed", False)),
+        )
+
+
+@dataclass(slots=True)
 class PhotoManifestEntry:
     id: str
     source_url: str
@@ -364,6 +400,9 @@ class DashboardState:
     calendar: CalendarState
     spotify: SpotifyState
     system: SystemState
+    # Additive (default []) so a last_good.json written before timers existed
+    # still loads — no schema bump needed, see the note above the constant.
+    timers: list[TimerState] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -372,6 +411,7 @@ class DashboardState:
             "calendar": self.calendar.to_dict(),
             "spotify": self.spotify.to_dict(),
             "system": self.system.to_dict(),
+            "timers": [timer.to_dict() for timer in self.timers],
         }
 
     @classmethod
@@ -394,4 +434,9 @@ class DashboardState:
             calendar=CalendarState.from_dict(data.get("calendar")),
             spotify=SpotifyState.from_dict(data.get("spotify")),
             system=SystemState.from_dict(data.get("system")),
+            timers=[
+                TimerState.from_dict(item)
+                for item in data.get("timers", []) or []
+                if isinstance(item, dict)
+            ],
         )

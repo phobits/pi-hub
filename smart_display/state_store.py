@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 import time
 from dataclasses import replace
-from typing import Any
+from typing import Any, Callable
 
 from smart_display.cache.disk_cache import DiskCache
 from smart_display.config import AppConfig
@@ -16,6 +17,7 @@ from smart_display.models import (
     ProviderSnapshot,
     SpotifyState,
     SystemState,
+    TimerState,
     WeatherState,
     utcnow_iso,
 )
@@ -24,11 +26,41 @@ from smart_display.models import (
 logger = logging.getLogger(__name__)
 
 
+# SD-card wear (Ticket #1): every mutation used to rewrite last_good.json. With
+# Spotify playing, progress_ms changes on every 30 s refresh — ~2,900 writes a
+# day for a value the UI interpolates anyway. Keys listed here never justify a
+# write on their own; an otherwise identical payload is re-persisted at most
+# once per PERSIST_MIN_INTERVAL_SECONDS so the on-disk copy never drifts far.
+PERSIST_MIN_INTERVAL_SECONDS = 300.0
+VOLATILE_KEYS = frozenset({"progress_ms", "generated_at", "updated_at"})
+
+
+def _strip_volatile(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_volatile(item)
+            for key, item in value.items()
+            if key not in VOLATILE_KEYS
+        }
+    if isinstance(value, list):
+        return [_strip_volatile(item) for item in value]
+    return value
+
+
 class StateStore:
-    def __init__(self, config: AppConfig):
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        monotonic: Callable[[], float] | None = None,
+    ):
         self.config = config
         self._lock = threading.Lock()
         self._cache = DiskCache(config.last_good_path)
+        self._monotonic = monotonic or time.monotonic
+        self._last_persisted_key: str | None = None
+        self._last_persisted_at: float = float("-inf")
+        self._dirty = False
         self._state = self._load_initial_state()
         self._provider_health: dict[str, ProviderSnapshot] = {
             "weather": self._state.weather.snapshot,
@@ -108,6 +140,23 @@ class StateStore:
             self._state.system.generated_at = utcnow_iso()
             self._persist_locked()
 
+    def get_timers(self) -> list[TimerState]:
+        with self._lock:
+            return [replace(timer) for timer in self._state.timers]
+
+    def set_timers(self, timers: list[TimerState]) -> None:
+        with self._lock:
+            self._state.timers = [replace(timer) for timer in timers]
+            self._state.system.generated_at = utcnow_iso()
+            self._persist_locked()
+
+    def flush(self) -> None:
+        """Write a deferred payload to disk. Called on shutdown so a progress
+        update skipped by the debounce is not lost across a restart."""
+        with self._lock:
+            if self._dirty:
+                self._persist_locked(force=True)
+
     def health_payload(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -119,8 +168,21 @@ class StateStore:
                 },
             }
 
-    def _persist_locked(self) -> None:
-        self._cache.save(self._state.to_dict())
+    def _persist_locked(self, *, force: bool = False) -> None:
+        payload = self._state.to_dict()
+        key = json.dumps(
+            _strip_volatile(payload), sort_keys=True, separators=(",", ":")
+        )
+        now = self._monotonic()
+        unchanged = key == self._last_persisted_key
+        recent = now - self._last_persisted_at < PERSIST_MIN_INTERVAL_SECONDS
+        if not force and unchanged and recent:
+            self._dirty = True
+            return
+        self._cache.save(payload)
+        self._last_persisted_key = key
+        self._last_persisted_at = now
+        self._dirty = False
 
     def _quarantine_cache(self) -> None:
         """Rename the on-disk cache aside so a bad payload can't poison

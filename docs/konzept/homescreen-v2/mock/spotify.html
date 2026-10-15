@@ -1,0 +1,78 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Spotify v2</title>
+<style>
+:root{--bg:#07090c;--ink:#f4f6f8;--ink-2:rgba(244,246,248,.64);--ink-3:rgba(244,246,248,.4);--hair:rgba(255,255,255,.09);--surface:rgba(255,255,255,.055);--surface-2:rgba(255,255,255,.1)}
+*{box-sizing:border-box}html,body{margin:0;width:1024px;height:600px;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font-family:"Inter",sans-serif;font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(900px 520px at 8% -10%,rgba(96,130,180,.16),transparent 60%),radial-gradient(700px 420px at 100% 110%,rgba(180,140,100,.1),transparent 60%)}
+.sp{position:relative;display:grid;grid-template-columns:380px 1fr;column-gap:40px;height:100%;padding:32px 32px 22px}
+.art{width:380px;height:380px;border-radius:24px;background:linear-gradient(145deg,#4c5a6b,#1b2129);box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.left{display:grid;grid-template-rows:auto 1fr;row-gap:18px}
+.dev{display:flex;align-items:center;gap:10px;align-self:end;justify-self:start;height:44px;padding:0 16px 0 12px;border-radius:999px;background:var(--surface);font-size:16px;font-weight:500;color:var(--ink-2)}
+.dev svg{width:18px;height:18px;color:var(--ink-2)}
+.dev b{color:var(--ink);font-weight:600}
+.right{display:grid;grid-template-rows:auto auto auto 1fr;row-gap:0;min-width:0}
+.top{display:flex;justify-content:space-between;align-items:center;height:44px}
+.back{display:inline-flex;align-items:center;gap:6px;height:44px;padding:0 14px 0 8px;border-radius:999px;color:var(--ink-2);font-size:16px;font-weight:500}
+.back svg{width:20px;height:20px}
+.pick{display:inline-flex;align-items:center;gap:8px;height:44px;padding:0 18px;border-radius:999px;background:var(--surface-2);font-size:16px;font-weight:600}
+.pick svg{width:18px;height:18px}
+.t1{margin-top:22px;font-family:"Inter Display","Inter",sans-serif;font-size:40px;font-weight:600;letter-spacing:-.02em;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t2{margin-top:8px;font-size:21px;font-weight:500;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t2 span{color:var(--ink-3)}
+.seek{margin-top:26px}
+.seek .track{position:relative;height:6px;border-radius:3px;background:rgba(255,255,255,.14)}
+.seek .track i{position:absolute;left:0;top:0;bottom:0;width:29%;border-radius:3px;background:var(--ink)}
+.seek .track b{position:absolute;left:29%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:var(--ink);box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.seek .times{display:flex;justify-content:space-between;margin-top:10px;font-size:15px;font-weight:500;color:var(--ink-2)}
+.ctl{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:28px;margin-top:22px}
+.tr{display:flex;align-items:center;gap:14px}
+.b{display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:50%;background:var(--surface)}
+.b svg{width:30px;height:30px}
+.b.p{width:84px;height:84px;background:var(--ink);color:#0b0d10}
+.b.p svg{width:38px;height:38px}
+.vol{display:grid;grid-template-columns:auto 1fr auto;align-items:center;column-gap:14px;color:var(--ink-2)}
+.vol svg{width:22px;height:22px}
+.vol .track{position:relative;height:6px;border-radius:3px;background:rgba(255,255,255,.14)}
+.vol .track i{position:absolute;left:0;top:0;bottom:0;width:42%;border-radius:3px;background:var(--ink)}
+.vol .track b{position:absolute;left:42%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;background:var(--ink)}
+.vol em{font-style:normal;font-size:15px;font-weight:500;min-width:36px;text-align:right}
+.q{margin-top:26px;min-height:0;border-top:1px solid var(--hair);padding-top:14px}
+.q h2{margin:0 0 10px;font-size:15px;font-weight:600;color:var(--ink-2)}
+.qi{display:grid;grid-template-columns:44px 1fr auto;align-items:center;column-gap:14px;height:52px}
+.qi .a{width:44px;height:44px;border-radius:10px;background:linear-gradient(145deg,#3a4452,#1b2129)}
+.qi .n{font-size:17px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qi .s{font-size:14px;color:var(--ink-2)}
+.qi .d{font-size:14px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.grip{position:fixed;left:50%;bottom:7px;width:44px;height:4px;margin-left:-22px;border-radius:99px;background:rgba(255,255,255,.2)}
+</style></head><body>
+<div class="sp">
+  <div class="left">
+    <div class="art"></div>
+    <div class="dev"><svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="7" y="9" width="18" height="12" rx="2"/><path d="M12 25h8"/></svg><b>Wohnzimmer</b> · Speaker</div>
+  </div>
+  <div class="right">
+    <div class="top">
+      <span class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>Start</span>
+      <span class="pick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h10M4 18h7"/><path d="M19 14v6m-3-3h6"/></svg>Musik wählen</span>
+    </div>
+    <div class="t1">Everything In Its Right Place</div>
+    <div class="t2">Radiohead <span>· Kid A</span></div>
+    <div class="seek"><div class="track"><i></i><b></b></div><div class="times"><span>1:14</span><span>−2:57</span></div></div>
+    <div class="ctl">
+      <div class="tr">
+        <span class="b"><svg viewBox="0 0 32 32" fill="currentColor"><path d="M9 8h3v16H9zM23 8l-11 8 11 8z"/></svg></span>
+        <span class="b p"><svg viewBox="0 0 32 32" fill="currentColor"><rect x="10" y="8" width="4.5" height="16" rx="1.5"/><rect x="17.5" y="8" width="4.5" height="16" rx="1.5"/></svg></span>
+        <span class="b"><svg viewBox="0 0 32 32" fill="currentColor"><path d="M20 8h3v16h-3zM9 8l11 8-11 8z"/></svg></span>
+      </div>
+      <div class="vol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg><div class="track"><i></i><b></b></div><em>42 %</em></div>
+    </div>
+    <div class="q">
+      <h2>Als Nächstes</h2>
+      <div class="qi"><span class="a"></span><span><div class="n">Idioteque</div><div class="s">Radiohead</div></span><span class="d">5:09</span></div>
+      <div class="qi"><span class="a"></span><span><div class="n">Morning Bell</div><div class="s">Radiohead</div></span><span class="d">4:35</span></div>
+      <div class="qi"><span class="a"></span><span><div class="n">Motion Picture Soundtrack</div><div class="s">Radiohead</div></span><span class="d">7:01</span></div>
+    </div>
+  </div>
+</div>
+<div class="grip"></div>
+</body></html>

@@ -21,7 +21,7 @@ class FormatInitialClockTest(unittest.TestCase):
         frozen = datetime(2026, 4, 8, 9, 42, tzinfo=ZoneInfo("UTC"))
         result = format_initial_clock("Europe/Vienna", now=frozen)
         self.assertEqual(result["time"], "11:42")
-        self.assertEqual(result["date"], "Mittwoch · 8. April")
+        self.assertEqual(result["date"], "Mittwoch, 8. April")
         self.assertNotIn("timezone_label", result)
 
     def test_formats_initial_clock_respects_zone_difference(self) -> None:
@@ -29,7 +29,7 @@ class FormatInitialClockTest(unittest.TestCase):
         frozen = datetime(2026, 4, 8, 23, 30, tzinfo=ZoneInfo("UTC"))
         result = format_initial_clock("UTC", now=frozen)
         self.assertEqual(result["time"], "23:30")
-        self.assertEqual(result["date"], "Mittwoch · 8. April")
+        self.assertEqual(result["date"], "Mittwoch, 8. April")
 
     def test_all_months_round_trip(self) -> None:
         # Sanity: each month index yields the expected German name.

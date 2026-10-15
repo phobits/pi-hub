@@ -11,6 +11,76 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+### Geändert — Homescreen v2 „Glance“
+
+- **Homescreen neu gebaut.** Keine Karten, keine Rahmen, keine Überschriften;
+  Hierarchie aus Größe, Gewicht und Abstand. Links 612 px Uhr-Bühne (300 px,
+  Wortuhr/Analog 376 px), Datum „Donnerstag, 15. Oktober“, Wetter jetzt + drei
+  Tage. Rechts 328 px: Statusleiste, Termine, Musik-Leiste. Konzept und
+  Mockups unter `docs/konzept/homescreen-v2.md`.
+- **Nächster Termin hervorgehoben** mit relativer Zeit („jetzt“, „in 48 Min“
+  bis 60 Minuten); vergangene Termine abgeblendet, pro Tag bleibt höchstens
+  der jüngste. Der hervorgehobene Termin zählt im Zeilenbudget doppelt
+  (`compute_row_budget(section_extra_rows=…)`).
+- **Zustand als Zeitstempel statt Badge**: „Stand HH:MM“ beim Wetter, „Offline ·
+  Stand HH:MM“ in der Statusleiste, „Spotify · Nicht erreichbar · zuletzt HH:MM“
+  in der Musik-Leiste. Die Status-Pills („Cache“, „Fehler“, „Leer“) sind weg.
+- **Musik-Leiste statt Kachel**: 96 px bei Wiedergabe, 60 px im Leerlauf,
+  ausgeblendet solange Spotify nicht verbunden ist. Der Timer-Chip sitzt in der
+  Statusleiste statt über der Uhr.
+- **Spotify-Screen**: Restzeit statt Gesamtzeit, 15-px-Zeiten, Lautstärke mit
+  Symbol und Wert am Regler, Warteschlange mit Dauer (`duration_ms` im
+  Queue-Payload), keine Kopfzeile. Sheet in vier Spalten (Timer · Uhr · Nacht ·
+  Gerät).
+- **`app.css` neu geschrieben** für genau eine Auflösung: keine Media-Queries,
+  kein `clamp()`, keine `vw`. 2793 → ~2300 Zeilen, jede Größe einmal. LCD- und
+  Puls-Doppelpunkt blinken nicht mehr (kein 24/7-Repaint), Flip-Ziffern tragen
+  `box-shadow` statt `filter: drop-shadow`.
+- Display-Größen in `Inter Display` mit Fallback auf `Inter`.
+- `scripts/screenshot-states.py`: Playwright-Rendering aller Faces und Zustände
+  gegen den Demo-Server (Entwicklungshilfe, kein Ship-Gate).
+
+### Hinzugefügt
+
+- **Schnellmenü** (Wisch nach oben oder Tipp auf den Griff am unteren Rand):
+  Timer-Presets, Uhr-Stil, Nachtmodus, Neu starten/Ausschalten mit 2-s-Halten.
+  Der Griff ist kein Seitenindikator — er markiert eine Fläche, die sich hochziehen
+  lässt. (#2, #3)
+- **Timer** (#3): bis zu drei Countdowns, persistiert in `last_good.json`
+  (`DashboardState.timers`, additiv ohne Schema-Bump), Chip oben rechts im
+  Hero, Restzeit im Screensaver, Vollbild-Alarm mit „Stopp“ und „+1 Min“.
+  Rein visuell — das Panel hat keinen Lautsprecher. Ein nicht bestätigter
+  Alarm verschwindet nach 10 Minuten. Endpunkte unter `/api/timers`.
+- **Nachtfenster** (#2): `APP_NIGHT_FROM`/`APP_NIGHT_TO` (Standard 22:30–06:00)
+  schalten eine gedimmte Palette und einen Screensaver ohne Fotos (dunkle Uhr auf
+  Schwarz). Manuelles An/Aus im Schnellmenü, persistiert im `localStorage`.
+- **Uhr über den Screensaver-Fotos** (#2): Zeit, Datum, Temperatur unten links
+  als Textknoten, ein Update pro Minute.
+- **Ausschalten/Neustart per Touch** (#2): `POST /api/system/{shutdown,reboot}`
+  hinter `APP_ALLOW_SHUTDOWN=true` (Standard aus, der Demo-Server kann keinen
+  Rechner herunterfahren) und einer sudoers-Regel für genau zwei Kommandos.
+  Optional `dtoverlay=gpio-shutdown` (`SMART_DISPLAY_GPIO_SHUTDOWN=true`), damit
+  Pin 5 gegen GND den gehaltenen Pi wieder weckt.
+- **Dauerbetrieb** (#1): `smart-display.service` ist `Type=notify` mit
+  `WatchdogSec=90`; `READY=1` erst nach dem Bind, `WATCHDOG=1` nur nach einem
+  erfolgreichen lokalen `GET /health`. journald-Deckel (32 MB), Hardware-Watchdog
+  (`RuntimeWatchdogSec=15`, `dtparam=watchdog=on`), zram-Swap 128 MB,
+  `OOMScoreAdjust` (Backend −500, Kiosk +500). Alles über `install-pi.sh`.
+- **Uhr-Hinweis** (#1): solange `systemd-timesyncd` nicht synchronisiert hat,
+  steht „Uhr wird gestellt …“ unter dem Datum (`system.time_synced`).
+- `scripts/measure_pi.py` (#1): Messbaseline auf dem Gerät — RAM, RSS je
+  Prozess, CPU-Mittel, SD-Schreibvolumen, `/api/state`-Latenz, Restarts.
+- `scripts/pi/test-panel-blank.sh` (#2): Hardware-Test, ob das Panel bei
+  DPMS-Off dunkel wird.
+
+### Geändert
+
+- `StateStore` schreibt `last_good.json` nur noch bei inhaltlicher Änderung
+  (ohne `progress_ms`, `generated_at`, `updated_at`), sonst höchstens alle
+  300 s, plus `flush()` beim Beenden (SIGTERM läuft jetzt über `atexit`).
+  Vorher: ein Write pro Spotify-Refresh, ~2.900 am Tag. (#1)
+- `install-pi.sh` hat einen achten Schritt (journald, Watchdog, zram, sudoers).
+
 ## [0.8.0] - 2026-07-19
 
 ### Geändert

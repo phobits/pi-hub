@@ -6,7 +6,7 @@
     <title>{{ app_title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   </head>
-  <body data-watch-face="{{ initial_watch_face }}">
+  <body data-watch-face="{{ initial_watch_face }}" data-night="{{ 'true' if initial_night else 'false' }}">
     <script>
       window.__SMART_DISPLAY__ = {{ {"config": ui_config, "state": initial_state}|tojson }};
     </script>
@@ -14,190 +14,187 @@
     <div class="screen-stage" id="screen-stage" data-active-screen="home">
       <!-- div, not section: <main> may only be nested in html/body/div/form. -->
       <div class="display-screen display-screen--home is-active" id="screen-home" aria-hidden="false">
-    <main class="dashboard-shell" id="dashboard-shell">
-      <section class="hero-panel">
-        <div class="hero-panel__inner">
-          <button type="button" class="watch-face" id="watch-face" aria-label="Uhrzeit-Stil wechseln">
-            <div class="watch-face__flip" id="watch-face-flip">
-              <div class="flip-clock">
-                {%- for position, idx in [("h1", 0), ("h2", 1), ("m1", 2), ("m2", 3)] -%}
-                  <div class="flip-digit" id="flip-{{ position }}" data-value="{{ time_digits[idx] }}">
-                    <div class="flip-digit__half flip-digit__half--top"><span class="flip-digit__digit">{{ time_digits[idx] }}</span></div>
-                    <div class="flip-digit__half flip-digit__half--bottom"><span class="flip-digit__digit">{{ time_digits[idx] }}</span></div>
-                    <div class="flip-digit__flap flip-digit__flap--top" aria-hidden="true"><span class="flip-digit__digit"></span></div>
-                    <div class="flip-digit__flap flip-digit__flap--bottom" aria-hidden="true"><span class="flip-digit__digit"></span></div>
-                  </div>
-                  {%- if position == "h2" -%}
-                    <div class="flip-clock__sep" aria-hidden="true"><span></span><span></span></div>
-                  {%- endif -%}
-                {%- endfor -%}
-              </div>
-            </div>
-            <div class="watch-face__lcd" id="watch-face-lcd" aria-hidden="true">
-              <svg class="lcd-clock" viewBox="0 0 400 160" role="img" aria-label="Digitaluhr">
-                {%- set lcd_rects = [
-                  ("a", 14, 4, 52, 8),
-                  ("b", 66, 14, 8, 52),
-                  ("c", 66, 74, 8, 52),
-                  ("d", 14, 128, 52, 8),
-                  ("e", 6, 74, 8, 52),
-                  ("f", 6, 14, 8, 52),
-                  ("g", 14, 66, 52, 8),
-                ] -%}
-                {%- set lcd_positions = [("h1", 0), ("h2", 90), ("m1", 230), ("m2", 320)] -%}
-                {%- for position, x in lcd_positions -%}
-                  {%- set digit = lcd_digits[loop.index0] -%}
-                  <g class="lcd-digit" id="lcd-{{ position }}" data-value="{{ digit.value }}" transform="translate({{ x }}, 8)">
-                    {%- for seg, rx, ry, rw, rh in lcd_rects -%}
-                      <rect class="lcd-seg{% if seg in digit.segments %} is-on{% endif %}" data-seg="{{ seg }}" x="{{ rx }}" y="{{ ry }}" width="{{ rw }}" height="{{ rh }}" rx="2"></rect>
-                    {%- endfor -%}
-                  </g>
-                {%- endfor -%}
-                <g class="lcd-colon" aria-hidden="true">
-                  <circle cx="210" cy="70" r="6"></circle>
-                  <circle cx="210" cy="106" r="6"></circle>
-                </g>
-              </svg>
-            </div>
-            <div class="watch-face__pulse" id="watch-face-pulse" aria-hidden="true">
-              <div class="pulse-clock">
-                <span class="pulse-clock__hm">
-                  <span id="pulse-hh">{{ initial_clock.time[:2] }}</span><span class="pulse-clock__colon">:</span><span id="pulse-mm">{{ initial_clock.time[3:] }}</span>
-                </span>
-              </div>
-            </div>
-            <div class="watch-face__analog" id="watch-face-analog" aria-hidden="true">
-              <svg class="analog-clock" viewBox="0 0 200 200" role="img" aria-label="Analoge Uhr" focusable="false">
-                <circle class="analog-clock__face" cx="100" cy="100" r="92"></circle>
-                <g class="analog-clock__ticks">
-                  {%- for tick in range(12) -%}
-                    <line class="analog-clock__tick analog-clock__tick--hour" x1="100" y1="14" x2="100" y2="26" transform="rotate({{ tick * 30 }} 100 100)"></line>
-                  {%- endfor -%}
-                  {%- for tick in range(60) -%}
-                    {%- if tick % 5 != 0 -%}
-                      <line class="analog-clock__tick analog-clock__tick--minute" x1="100" y1="14" x2="100" y2="20" transform="rotate({{ tick * 6 }} 100 100)"></line>
+        <!-- Homescreen v2 ("Glance"): no cards, no frames. Left 612 px: clock
+             stage + date + weather. Right 328 px: status rail + agenda + music
+             bar. Every block has a fixed slot, so no face leaves a gap. -->
+        <main class="home" id="dashboard-shell">
+          <section class="glance" aria-label="Uhr und Wetter">
+            <button type="button" class="watch-face" id="watch-face" aria-label="Uhrzeit-Stil wechseln">
+              <div class="watch-face__flip" id="watch-face-flip">
+                <div class="flip-clock">
+                  {%- for position, idx in [("h1", 0), ("h2", 1), ("m1", 2), ("m2", 3)] -%}
+                    <div class="flip-digit" id="flip-{{ position }}" data-value="{{ time_digits[idx] }}">
+                      <div class="flip-digit__half flip-digit__half--top"><span class="flip-digit__digit">{{ time_digits[idx] }}</span></div>
+                      <div class="flip-digit__half flip-digit__half--bottom"><span class="flip-digit__digit">{{ time_digits[idx] }}</span></div>
+                      <div class="flip-digit__flap flip-digit__flap--top" aria-hidden="true"><span class="flip-digit__digit"></span></div>
+                      <div class="flip-digit__flap flip-digit__flap--bottom" aria-hidden="true"><span class="flip-digit__digit"></span></div>
+                    </div>
+                    {%- if position == "h2" -%}
+                      <div class="flip-clock__sep" aria-hidden="true"><span></span><span></span></div>
                     {%- endif -%}
                   {%- endfor -%}
-                </g>
-                <line class="analog-clock__hand analog-clock__hand--hour" id="analog-hand-hour" x1="100" y1="112" x2="100" y2="54" transform="rotate({{ initial_analog.hour }} 100 100)"></line>
-                <line class="analog-clock__hand analog-clock__hand--minute" id="analog-hand-minute" x1="100" y1="116" x2="100" y2="30" transform="rotate({{ initial_analog.minute }} 100 100)"></line>
-                <line class="analog-clock__hand analog-clock__hand--second" id="analog-hand-second" x1="100" y1="120" x2="100" y2="22" transform="rotate({{ initial_analog.second }} 100 100)"></line>
-                <circle class="analog-clock__pivot" cx="100" cy="100" r="5"></circle>
-              </svg>
-            </div>
-            <div class="watch-face__qlocktwo" id="watch-face-qlocktwo" aria-hidden="true">
-              {%- set active_keys = qlocktwo_active|map("join", ",")|list -%}
-              {%- for row in qlocktwo_grid -%}
-                {%- set row_idx = loop.index0 -%}
-                <div class="qlocktwo-row">
-                  {%- for letter in row -%}
-                    {%- set col_idx = loop.index0 -%}
-                    {%- set cell_key = row_idx|string ~ "," ~ col_idx|string -%}
-                    <span class="qlocktwo-letter{% if cell_key in active_keys %} is-active{% endif %}" data-row="{{ row_idx }}" data-col="{{ col_idx }}">{{ letter }}</span>
-                  {%- endfor -%}
-                </div>
-              {%- endfor -%}
-            </div>
-            <div class="watch-face__qlocktwo-ooe" id="watch-face-qlocktwo-ooe" aria-hidden="true">
-              {%- set active_keys_ooe = qlocktwo_ooe_active|map("join", ",")|list -%}
-              {%- for row in qlocktwo_ooe_grid -%}
-                {%- set row_idx = loop.index0 -%}
-                <div class="qlocktwo-row">
-                  {%- for letter in row -%}
-                    {%- set col_idx = loop.index0 -%}
-                    {%- set cell_key = row_idx|string ~ "," ~ col_idx|string -%}
-                    <span class="qlocktwo-letter{% if cell_key in active_keys_ooe %} is-active{% endif %}" data-row="{{ row_idx }}" data-col="{{ col_idx }}">{{ letter }}</span>
-                  {%- endfor -%}
-                </div>
-              {%- endfor -%}
-            </div>
-          </button>
-          <div class="hero-date" id="clock-date">{{ initial_clock.date }}</div>
-          <section class="hero-weather">
-            <header class="hero-weather__header">
-              <h2 class="hero-weather__title" id="weather-location">Wetter Zuhause</h2>
-              <span class="status-pill is-hidden" id="weather-status">Laden</span>
-            </header>
-            <div class="hero-weather__body">
-              <div class="hero-weather__temperature" id="weather-temperature">--</div>
-              <div class="hero-weather__summary">
-                <div class="hero-weather__icon" id="weather-icon" aria-hidden="true"></div>
-                <div>
-                  <div class="hero-weather__condition" id="weather-condition">Wetterdaten werden geladen.</div>
-                  <div class="hero-weather__secondary" id="weather-secondary"></div>
                 </div>
               </div>
+              <div class="watch-face__lcd" id="watch-face-lcd" aria-hidden="true">
+                <svg class="lcd-clock" viewBox="0 0 400 160" role="img" aria-label="Digitaluhr">
+                  {%- set lcd_rects = [
+                    ("a", 14, 4, 52, 8),
+                    ("b", 66, 14, 8, 52),
+                    ("c", 66, 74, 8, 52),
+                    ("d", 14, 128, 52, 8),
+                    ("e", 6, 74, 8, 52),
+                    ("f", 6, 14, 8, 52),
+                    ("g", 14, 66, 52, 8),
+                  ] -%}
+                  {%- set lcd_positions = [("h1", 0), ("h2", 90), ("m1", 230), ("m2", 320)] -%}
+                  {%- for position, x in lcd_positions -%}
+                    {%- set digit = lcd_digits[loop.index0] -%}
+                    <g class="lcd-digit" id="lcd-{{ position }}" data-value="{{ digit.value }}" transform="translate({{ x }}, 8)">
+                      {%- for seg, rx, ry, rw, rh in lcd_rects -%}
+                        <rect class="lcd-seg{% if seg in digit.segments %} is-on{% endif %}" data-seg="{{ seg }}" x="{{ rx }}" y="{{ ry }}" width="{{ rw }}" height="{{ rh }}" rx="2"></rect>
+                      {%- endfor -%}
+                    </g>
+                  {%- endfor -%}
+                  <g class="lcd-colon" aria-hidden="true">
+                    <circle cx="210" cy="70" r="6"></circle>
+                    <circle cx="210" cy="106" r="6"></circle>
+                  </g>
+                </svg>
+              </div>
+              <div class="watch-face__pulse" id="watch-face-pulse" aria-hidden="true">
+                <div class="pulse-clock">
+                  <span class="pulse-clock__hm">
+                    <span id="pulse-hh">{{ initial_clock.time[:2] }}</span><span class="pulse-clock__colon">:</span><span id="pulse-mm">{{ initial_clock.time[3:] }}</span>
+                  </span>
+                </div>
+              </div>
+              <div class="watch-face__analog" id="watch-face-analog" aria-hidden="true">
+                <svg class="analog-clock" viewBox="0 0 200 200" role="img" aria-label="Analoge Uhr" focusable="false">
+                  <circle class="analog-clock__face" cx="100" cy="100" r="94"></circle>
+                  <g class="analog-clock__ticks">
+                    {%- for tick in range(12) -%}
+                      <line class="analog-clock__tick analog-clock__tick--hour" x1="100" y1="12" x2="100" y2="24" transform="rotate({{ tick * 30 }} 100 100)"></line>
+                    {%- endfor -%}
+                    {%- for tick in range(60) -%}
+                      {%- if tick % 5 != 0 -%}
+                        <line class="analog-clock__tick analog-clock__tick--minute" x1="100" y1="12" x2="100" y2="18" transform="rotate({{ tick * 6 }} 100 100)"></line>
+                      {%- endif -%}
+                    {%- endfor -%}
+                  </g>
+                  <line class="analog-clock__hand analog-clock__hand--hour" id="analog-hand-hour" x1="100" y1="112" x2="100" y2="52" transform="rotate({{ initial_analog.hour }} 100 100)"></line>
+                  <line class="analog-clock__hand analog-clock__hand--minute" id="analog-hand-minute" x1="100" y1="116" x2="100" y2="26" transform="rotate({{ initial_analog.minute }} 100 100)"></line>
+                  <line class="analog-clock__hand analog-clock__hand--second" id="analog-hand-second" x1="100" y1="120" x2="100" y2="20" transform="rotate({{ initial_analog.second }} 100 100)"></line>
+                  <circle class="analog-clock__pivot" cx="100" cy="100" r="5"></circle>
+                </svg>
+              </div>
+              <div class="watch-face__qlocktwo" id="watch-face-qlocktwo" aria-hidden="true">
+                {%- set active_keys = qlocktwo_active|map("join", ",")|list -%}
+                {%- for row in qlocktwo_grid -%}
+                  {%- set row_idx = loop.index0 -%}
+                  <div class="qlocktwo-row">
+                    {%- for letter in row -%}
+                      {%- set col_idx = loop.index0 -%}
+                      {%- set cell_key = row_idx|string ~ "," ~ col_idx|string -%}
+                      <span class="qlocktwo-letter{% if cell_key in active_keys %} is-active{% endif %}" data-row="{{ row_idx }}" data-col="{{ col_idx }}">{{ letter }}</span>
+                    {%- endfor -%}
+                  </div>
+                {%- endfor -%}
+              </div>
+              <div class="watch-face__qlocktwo-ooe" id="watch-face-qlocktwo-ooe" aria-hidden="true">
+                {%- set active_keys_ooe = qlocktwo_ooe_active|map("join", ",")|list -%}
+                {%- for row in qlocktwo_ooe_grid -%}
+                  {%- set row_idx = loop.index0 -%}
+                  <div class="qlocktwo-row">
+                    {%- for letter in row -%}
+                      {%- set col_idx = loop.index0 -%}
+                      {%- set cell_key = row_idx|string ~ "," ~ col_idx|string -%}
+                      <span class="qlocktwo-letter{% if cell_key in active_keys_ooe %} is-active{% endif %}" data-row="{{ row_idx }}" data-col="{{ col_idx }}">{{ letter }}</span>
+                    {%- endfor -%}
+                  </div>
+                {%- endfor -%}
+              </div>
+            </button>
+
+            <div class="date-line">
+              <span class="date-line__date" id="clock-date">{{ initial_clock.date }}</span>
+              <!-- Ticket #1: no RTC — until timesyncd has stepped the clock the
+                   digits are fake-hwclock's guess. Say so instead of looking sure. -->
+              <span class="date-line__hint{% if initial_state.system.time_synced %} is-hidden{% endif %}" id="clock-sync-hint">· Uhr wird gestellt …</span>
             </div>
-            <div class="hero-weather__forecast" id="weather-forecast"></div>
+
+            <section class="weather" aria-label="Wetter">
+              <div class="weather__now">
+                <div class="weather__temperature" id="weather-temperature">--</div>
+                <div class="weather__icon" id="weather-icon" aria-hidden="true"></div>
+                <div class="weather__copy">
+                  <div class="weather__condition" id="weather-condition">Wetterdaten werden geladen.</div>
+                  <div class="weather__secondary" id="weather-secondary">
+                    <span class="weather__feels" id="weather-feels"></span>
+                    <span class="weather__location" id="weather-location"></span>
+                    <span class="weather__stamp" id="weather-stamp"></span>
+                  </div>
+                </div>
+              </div>
+              <div class="weather__days" id="weather-forecast"></div>
+            </section>
           </section>
-        </div>
-      </section>
 
-      <section class="cards-column" id="cards-column">
-        <article class="card calendar-card">
-          <header class="card__header">
-            <h2 class="card__title">Termine</h2>
-            <span class="status-pill is-hidden" id="calendar-status">Laden</span>
-          </header>
-          <ul class="calendar-list" id="calendar-list"></ul>
-        </article>
+          <section class="side" id="cards-column" data-music="hidden" aria-label="Termine und Musik">
+            <!-- Status rail: a reserved 36 px row. Timer chip on the right,
+                 "Offline · Stand HH:MM" when a network provider is behind.
+                 Reserved, not collapsible, so nothing below it ever jumps. -->
+            <div class="rail" id="status-rail">
+              <span class="rail__note is-hidden" id="status-note"></span>
+              <span class="rail__dot is-hidden" id="status-dot" aria-hidden="true"></span>
+              <!-- Ticket #3: running-timer chip. Hidden unless a timer is live. -->
+              <button type="button" class="timer-chip is-hidden" id="timer-chip" aria-label="Timer anzeigen">
+                <span class="timer-chip__icon" id="timer-chip-icon" aria-hidden="true"></span>
+                <span class="timer-chip__text" id="timer-chip-text">00:00</span>
+              </button>
+            </div>
 
-        <!-- Display only: the whole tile is the way into the Spotify screen, so
-             transport, volume, device picker and the elapsed/total times all live
-             there and nowhere else. Only <span>s inside a <button> — a <button>
-             takes phrasing content, not <div>. -->
-        <button type="button" class="spotify-tile" id="spotify-card" aria-label="Spotify-Steuerung öffnen">
-          <span class="spotify-tile__inner">
-            <span class="spotify-tile__art" id="spotify-artwork" aria-hidden="true"></span>
-            <span class="spotify-tile__scrim" aria-hidden="true"></span>
-            <span class="spotify-tile__meta">
-              <span class="spotify-tile__play" id="spotify-tile-play-icon" aria-hidden="true"></span>
-              <span class="spotify-tile__track" id="spotify-track">Musik starten</span>
-              <span class="spotify-tile__artist" id="spotify-artist"></span>
-            </span>
-            <span class="spotify-tile__progress" id="spotify-progress" aria-hidden="true">
-              <span class="spotify-tile__progress-fill" id="spotify-progress-fill"></span>
-            </span>
-          </span>
-        </button>
-      </section>
-    </main>
+            <ul class="agenda" id="calendar-list" aria-label="Termine"></ul>
+
+            <!-- Display only: the whole bar is the way into the Spotify screen,
+                 so transport, volume, device picker and the times all live there
+                 and nowhere else. Only <span>s inside a <button>. -->
+            <button type="button" class="spotify-tile music" id="spotify-card" aria-label="Spotify-Steuerung öffnen">
+              <span class="music__art" id="spotify-artwork" aria-hidden="true"><span class="music__play" id="spotify-tile-play-icon"></span></span>
+              <span class="music__meta">
+                <span class="music__title" id="spotify-track">Musik starten</span>
+                <span class="music__subtitle" id="spotify-artist"></span>
+              </span>
+              <span class="music__progress" id="spotify-progress" aria-hidden="true">
+                <span class="music__progress-fill" id="spotify-progress-fill"></span>
+              </span>
+            </button>
+          </section>
+        </main>
       </div>
 
       <!-- The dashboard owns the document's single <main>; this screen is a
            peer view of the same app, so it stays a plain section. -->
       <div class="display-screen display-screen--spotify" id="screen-spotify" aria-hidden="true">
         <section class="spotify-detail" id="spotify-detail" aria-label="Spotify-Steuerung">
-          <section class="spotify-detail__visual card" aria-label="Aktuelle Wiedergabe">
+          <section class="spotify-detail__visual" aria-label="Aktuelle Wiedergabe">
             <div class="spotify-detail__artwork" id="spotify-detail-artwork" role="img" aria-label="Albumcover"></div>
-            <div class="spotify-detail__visual-meta">
-              <div class="spotify-detail__device spotify-device-badge" id="spotify-detail-device-badge">
-                <span class="spotify-device-badge__icon" id="spotify-detail-device-icon" aria-hidden="true"></span>
-                <span id="spotify-detail-device">Kein aktives Gerät</span>
-              </div>
-              <span class="spotify-detail__volume-readout" id="spotify-detail-volume-readout"></span>
+            <div class="spotify-detail__device spotify-device-badge" id="spotify-detail-device-badge">
+              <span class="spotify-device-badge__icon" id="spotify-detail-device-icon" aria-hidden="true"></span>
+              <span id="spotify-detail-device">Kein aktives Gerät</span>
             </div>
           </section>
 
-          <section class="spotify-detail__control card">
+          <section class="spotify-detail__control">
             <header class="spotify-detail__header">
-              <div>
-                <div class="spotify-detail__eyebrow">Spotify</div>
-                <h1 class="spotify-detail__heading">Wiedergabe</h1>
-              </div>
-              <div class="spotify-detail__header-actions">
-                <button type="button" class="pill-button is-hidden" id="spotify-detail-open-picker" aria-label="Musik auf Gerät starten">
-                  <span class="pill-button__icon" id="spotify-detail-open-picker-icon" aria-hidden="true"></span>
-                  <span class="pill-button__label">Musik wählen</span>
-                </button>
-                <span class="status-pill is-hidden" id="spotify-detail-status">Laden</span>
-              </div>
+              <button type="button" class="pill-button is-hidden" id="spotify-detail-open-picker" aria-label="Musik auf Gerät starten">
+                <span class="pill-button__icon" id="spotify-detail-open-picker-icon" aria-hidden="true"></span>
+                <span class="pill-button__label">Musik wählen</span>
+              </button>
             </header>
 
             <div class="spotify-detail__copy">
-              <div class="spotify-detail__track" id="spotify-detail-track">Keine aktive Wiedergabe</div>
-              <div class="spotify-detail__artist" id="spotify-detail-artist">Spotify nicht verbunden.</div>
-              <div class="spotify-detail__album" id="spotify-detail-album"></div>
+              <h1 class="spotify-detail__track" id="spotify-detail-track">Keine aktive Wiedergabe</h1>
+              <div class="spotify-detail__artist"><span id="spotify-detail-artist">Spotify nicht verbunden.</span><span class="spotify-detail__album" id="spotify-detail-album"></span></div>
             </div>
 
             <div class="spotify-detail__seek" id="spotify-detail-progress">
@@ -221,8 +218,10 @@
                 </button>
               </div>
               <label class="spotify-volume spotify-detail__volume" for="spotify-detail-volume">
+                <span class="spotify-volume__icon" id="spotify-detail-volume-icon" aria-hidden="true"></span>
                 <span class="spotify-volume__label">Lautstärke</span>
                 <input type="range" min="0" max="100" step="1" value="0" id="spotify-detail-volume">
+                <span class="spotify-volume__readout" id="spotify-detail-volume-readout"></span>
               </label>
             </div>
 
@@ -239,6 +238,78 @@
         </section>
       </div>
 
+    </div>
+
+    <!-- Ticket #2/#3: quick sheet. Swipe up from anywhere or tap the grip. -->
+    <button type="button" class="sheet-handle" id="sheet-handle" aria-label="Schnellmenü öffnen"><span aria-hidden="true"></span></button>
+
+    <div class="sheet" id="quick-sheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Schnellmenü">
+      <div class="sheet__backdrop" id="quick-sheet-backdrop"></div>
+      <div class="sheet__panel" id="quick-sheet-panel">
+        <div class="sheet__grip" aria-hidden="true"></div>
+        <button type="button" class="sheet__close" id="quick-sheet-close" aria-label="Schließen"><span aria-hidden="true">×</span></button>
+        <div class="sheet__columns">
+          <section class="sheet__section" aria-labelledby="sheet-timer-title">
+            <h2 class="sheet__title" id="sheet-timer-title">Timer</h2>
+            <div class="sheet__chips" id="timer-presets">
+              <button type="button" class="chip" data-minutes="1">1 Min</button>
+              <button type="button" class="chip" data-minutes="5">5 Min</button>
+              <button type="button" class="chip" data-minutes="10">10 Min</button>
+              <button type="button" class="chip" data-minutes="15">15 Min</button>
+              <button type="button" class="chip" data-minutes="30">30 Min</button>
+              <button type="button" class="chip" data-minutes="60">1 Std</button>
+            </div>
+            <div class="timer-list" id="timer-list"></div>
+          </section>
+          <section class="sheet__section" aria-labelledby="sheet-clock-title">
+            <h2 class="sheet__title" id="sheet-clock-title">Uhr</h2>
+            <div class="sheet__chips" id="face-chips"></div>
+          </section>
+          <section class="sheet__section" aria-labelledby="sheet-night-title">
+            <h2 class="sheet__title" id="sheet-night-title">Nacht</h2>
+            <div class="sheet__chips" id="night-chips">
+              <button type="button" class="chip" data-night-mode="auto">Automatisch</button>
+              <button type="button" class="chip" data-night-mode="on">An</button>
+              <button type="button" class="chip" data-night-mode="off">Aus</button>
+            </div>
+            <div class="sheet__note" id="night-note"></div>
+          </section>
+          <section class="sheet__section" aria-labelledby="sheet-power-title">
+            <h2 class="sheet__title" id="sheet-power-title">Gerät</h2>
+            <button type="button" class="hold-button" id="power-reboot">
+              <span class="hold-button__fill" aria-hidden="true"></span>
+              <span class="hold-button__label">Neu starten</span>
+              <span class="hold-button__hint">2 s halten</span>
+            </button>
+            <button type="button" class="hold-button hold-button--danger" id="power-shutdown">
+              <span class="hold-button__fill" aria-hidden="true"></span>
+              <span class="hold-button__label">Ausschalten</span>
+              <span class="hold-button__hint">2 s halten</span>
+            </button>
+            <div class="sheet__note" id="power-note"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ticket #3: visual alarm (the panel has no speaker). Sits above the
+         screensaver so it is seen whatever the panel was showing. -->
+    <div class="alarm" id="timer-alarm" aria-hidden="true" role="alertdialog" aria-label="Timer abgelaufen">
+      <div class="alarm__pulse" aria-hidden="true"></div>
+      <div class="alarm__body">
+        <div class="alarm__eyebrow">Timer</div>
+        <div class="alarm__title" id="timer-alarm-title">Timer abgelaufen</div>
+        <div class="alarm__label" id="timer-alarm-label"></div>
+        <div class="alarm__actions">
+          <button type="button" class="alarm__button alarm__button--primary" id="timer-alarm-stop">Stopp</button>
+          <button type="button" class="alarm__button" id="timer-alarm-extend">+1 Min</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ticket #2: the last thing the panel shows before the Pi halts. -->
+    <div class="power-overlay" id="power-overlay" aria-hidden="true">
+      <div class="power-overlay__text" id="power-overlay-text">Wird ausgeschaltet …</div>
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
@@ -270,6 +341,17 @@
       <img class="screensaver__image screensaver__image--a is-active" id="screensaver-image-a" alt="">
       <img class="screensaver__image screensaver__image--b" id="screensaver-image-b" alt="">
       <div class="screensaver__overlay"></div>
+      <!-- Ticket #2: clock + date + weather over the photos (Nest-style), and
+           the dim centred clock in night mode. One text node per minute. -->
+      <div class="screensaver__info" id="screensaver-info">
+        <div class="screensaver__time" id="screensaver-time">{{ initial_clock.time }}</div>
+        <div class="screensaver__meta">
+          <span id="screensaver-date">{{ initial_clock.date }}</span>
+          <span class="screensaver__meta-sep" id="screensaver-weather-sep" aria-hidden="true">·</span>
+          <span id="screensaver-weather"></span>
+        </div>
+        <div class="screensaver__timer is-hidden" id="screensaver-timer"></div>
+      </div>
       <div class="screensaver__fallback" id="screensaver-fallback">
         <div class="screensaver__clock" id="screensaver-clock">
           <div class="flip-clock flip-clock--screensaver">

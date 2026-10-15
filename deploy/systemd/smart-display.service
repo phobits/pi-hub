@@ -4,12 +4,21 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+# Ticket #1: notify + watchdog. The backend sends READY=1 once Waitress has
+# bound its socket and WATCHDOG=1 only after a real loopback GET /health —
+# a wedged Waitress therefore gets restarted by systemd after WatchdogSec.
+Type=notify
+NotifyAccess=main
+WatchdogSec=90
+TimeoutStartSec=60
 WorkingDirectory=/opt/smart-display
 EnvironmentFile=/opt/smart-display/.env
 ExecStart=/opt/smart-display/.venv/bin/python -m smart_display.app
 Restart=always
 RestartSec=3
+# Keep the state aggregator alive under memory pressure; the browser
+# (smart-display-kiosk) is the one to sacrifice, it restarts in seconds.
+OOMScoreAdjust=-500
 User=pi
 Group=pi
 StandardOutput=journal

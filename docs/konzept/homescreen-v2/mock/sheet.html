@@ -1,0 +1,38 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Sheet v2</title>
+<style>
+:root{--bg:#07090c;--ink:#f4f6f8;--ink-2:rgba(244,246,248,.64);--ink-3:rgba(244,246,248,.4);--hair:rgba(255,255,255,.09);--surface:rgba(255,255,255,.07);--surface-2:rgba(255,255,255,.12);--amber:#f3c46b}
+*{box-sizing:border-box}html,body{margin:0;width:1024px;height:600px;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font-family:"Inter",sans-serif;font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased}
+.bg{position:absolute;inset:0;background:url(home.png) center/1024px 600px;filter:brightness(.35)}
+.panel{position:absolute;left:0;right:0;bottom:0;height:380px;padding:14px 32px 20px;background:#0e1115;border-top:1px solid var(--hair);border-radius:28px 28px 0 0}
+.grip{width:44px;height:4px;margin:0 auto 18px;border-radius:99px;background:rgba(255,255,255,.22)}
+.cols{display:grid;grid-template-columns:290px 250px 150px 210px;column-gap:20px}
+h2{margin:0 0 12px;font-size:15px;font-weight:600;color:var(--ink-2)}
+h2.sp{margin-top:20px}
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+.c{display:inline-flex;align-items:center;justify-content:center;height:48px;padding:0 16px;border-radius:999px;background:var(--surface);font-size:18px;font-weight:500}
+.c.on{background:var(--ink);color:#0b0d10;font-weight:600}
+.row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;column-gap:16px;height:64px;margin-top:14px;padding:0 8px 0 18px;border-radius:16px;background:var(--surface)}
+.row .t{font-size:30px;font-weight:600}
+.row .l{font-size:16px;color:var(--ink-2);white-space:nowrap}
+.row .x{height:44px;padding:0 16px;display:inline-flex;align-items:center;border-radius:12px;background:var(--surface-2);font-size:16px;font-weight:500}
+.hold{display:flex;align-items:center;justify-content:space-between;height:56px;margin-bottom:10px;padding:0 16px;border-radius:16px;background:var(--surface);font-size:17px;font-weight:600}
+.hold small{font-size:14px;font-weight:500;color:var(--ink-2)}
+.hold.d{border:1px solid rgba(242,167,167,.3)}
+.note{margin-top:10px;font-size:15px;line-height:1.4;color:var(--ink-2)}
+.close{position:absolute;top:16px;right:24px;width:48px;height:48px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--ink-2)}
+</style></head><body>
+<div class="bg"></div>
+<div class="panel">
+  <div class="grip"></div>
+  <div class="close">×</div>
+  <div class="cols">
+    <section><h2>Timer</h2><div class="chips"><span class="c">1 Min</span><span class="c">5 Min</span><span class="c">10 Min</span><span class="c">15 Min</span><span class="c">30 Min</span><span class="c">1 Std</span></div>
+      <div class="row"><span class="t">09:26</span><span class="l">10 Min</span><span class="x">Abbrechen</span></div></section>
+    <section><h2>Uhr</h2><div class="chips"><span class="c on">Flip</span><span class="c">LCD</span><span class="c">Puls</span><span class="c">Wortuhr</span><span class="c">Wortuhr OÖ</span><span class="c">Analog</span></div>
+</section>
+    <section><h2>Nacht</h2><div class="chips"><span class="c on">Automatisch</span><span class="c">An</span><span class="c">Aus</span></div><div class="note">Automatisch 22:30–06:00</div></section>
+    <section><h2>Gerät</h2><div class="hold">Neu starten<small>2 s halten</small></div><div class="hold d">Ausschalten<small>2 s halten</small></div></section>
+  </div>
+</div>
+</body></html>

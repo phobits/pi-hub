@@ -350,12 +350,20 @@ class _FakeWaitressModule(types.ModuleType):
         super().__init__("waitress")
         self.calls: list[dict] = []
 
-        def _serve(app, *, host, port, threads):  # noqa: ANN001 - test stub
+        fake = self
+
+        class _FakeServer:
+            def run(self) -> None:
+                fake.runs += 1
+
+        def _create_server(app, *, host, port, threads):  # noqa: ANN001 - test stub
             self.calls.append(
                 {"app": app, "host": host, "port": port, "threads": threads}
             )
+            return _FakeServer()
 
-        self.serve = _serve
+        self.runs = 0
+        self.create_server = _create_server
 
 
 class ServeAppLoopbackEnforcementTest(unittest.TestCase):
@@ -386,6 +394,8 @@ class ServeAppLoopbackEnforcementTest(unittest.TestCase):
         serve_app(app)
         self.assertEqual(len(self._fake.calls), 1)
         self.assertEqual(self._fake.calls[0]["host"], "127.0.0.1")
+        # Ticket #1: bind first (create_server), READY=1, then run().
+        self.assertEqual(self._fake.runs, 1)
         # Enough headroom that two parallel Spotify proxy calls (the picker
         # fires devices + sources together) cannot starve /api/state.
         self.assertGreaterEqual(self._fake.calls[0]["threads"], 4)
