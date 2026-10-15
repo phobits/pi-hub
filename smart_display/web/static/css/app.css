@@ -129,8 +129,9 @@ h3 {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  /* pan-y: the horizontal axis is the swipe handler's, vertical stays with the
-     browser so the agenda list remains scrollable by touch. */
+  /* pan-y: the horizontal axis is the swipe handler's; vertical panning stays
+     with the browser. The agenda does not scroll (its row budget trims to
+     fit), but a swipe up still has to reach the sheet handler cleanly. */
   touch-action: pan-y;
 }
 

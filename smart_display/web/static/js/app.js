@@ -2496,6 +2496,13 @@
 
   async function loadScreensaverImage() {
     const image = await fetchNextScreensaverImage();
+    // Night can take over while the fetch is in flight (minute tick or the
+    // sheet). Then this result is stale: painting it would override the dark
+    // clock for the rest of the night, because applyNight only re-evaluates
+    // on the next night-value change.
+    if (screensaverMode === "night" || !screensaverActive) {
+      return;
+    }
     if (!image) {
       showScreensaverFallback();
       return;
@@ -2509,8 +2516,9 @@
         : nodes.screensaverImageA;
 
     const loaded = await loadImageInSlot(nextSlot, image.public_path);
-    if (!loaded) {
-      // Leave the current slot visible; a failure must not blank the panel.
+    if (!loaded || screensaverMode === "night" || !screensaverActive) {
+      // Leave the current slot visible; a failure must not blank the panel,
+      // and a decode that finishes after night took over must not undo it.
       return;
     }
 
@@ -3017,6 +3025,15 @@
       dismissedLocally.add(timerId);
       timerTick();
       renderTimerList();
+    } else if (action === "extend" && payload && payload.seconds > 0) {
+      // Optimistic: the alarm is hidden before the POST resolves, and the next
+      // 1 Hz tick would otherwise find the timer still ringing and show it
+      // again. Server truth replaces this on the reply (applyTimers).
+      const timer = timers.find((t) => t.id === timerId);
+      if (timer) {
+        timer.ends_at = Math.max(timer.ends_at, nowSeconds()) + payload.seconds;
+        timerTick();
+      }
     }
     const result = payload
       ? await postJson(`/api/timers/${encodeURIComponent(timerId)}/${action}`, payload)
