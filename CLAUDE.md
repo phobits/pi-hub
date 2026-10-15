@@ -82,6 +82,12 @@ Env-var → config-key mapping lives in `_apply_env_overrides`. `CALENDAR_NAME` 
 - Status badges are hidden in the normal `ok` state by design — don't reintroduce them. Same for the removed "Startbildschirm" heading, the standalone weather card on the right, the decorative timezone label that used to sit under the hero date, and the home screen's Spotify status pill (all dropped to free space on 1024×600). See `AGENTS.md` "Aktueller UI-Maßstab".
 - The two screens have **disjoint** control surfaces: the home screen is display-only, and every Spotify interaction — transport, volume, seek, device/playlist picker — lives on screen 2. The home Spotify tile is a `<button>` whose only job is navigating there, so `renderSpotify` writes the home nodes for text/artwork and the detail nodes for everything else. Don't re-add a control to the home tile without also re-adding its node to `nodes`; most accesses there are unguarded and a missing id throws on the first poll.
 - When adding a new scheduled job, register it in `create_app()` *and* add a refresh interval in `RefreshIntervalsConfig` + `default.yaml` + the env mapping. Don't hardcode an interval at the call site.
+- `StateStore._persist_locked` is **debounced**: a payload that differs from the last write only in `VOLATILE_KEYS` (`progress_ms`, `generated_at`, `updated_at`) is written at most every `PERSIST_MIN_INTERVAL_SECONDS`; everything else writes immediately. `flush()` runs from `atexit`, and `serve_app` turns SIGTERM into `sys.exit` so atexit actually fires. If you add a field that changes on every refresh without meaning anything, put it in `VOLATILE_KEYS` or the SD write rate goes back to one per poll.
+- `smart-display.service` is `Type=notify` + `WatchdogSec`. `smart_display/sd_notify.py` sends `READY=1` after `create_server` has bound, and `WATCHDOG=1` only after a loopback `GET /health` succeeds — so a wedged Waitress is restarted, not kept alive. Outside systemd every call is a no-op.
+- Timers (`smart_display/timers.py`) derive `running/ringing/done` from the clock; nothing but `ends_at` and `dismissed` is stored. `DashboardState.timers` was added with a default, so no schema bump — keep additive changes additive.
+- `POST /api/system/{shutdown,reboot}` is gated twice: `app.allow_shutdown` (false everywhere except the Pi's `.env`) and a fixed argv through `sudo -n` matching `deploy/sudoers/smart-display`. Never build the command from request data.
+- Night window: `smart_display/night.py` is the source of truth, `app.js` mirrors `parseHhmm`/`isNightMinutes`. The server renders `data-night` for the first frame; the minute tick re-evaluates client-side.
+- `system.time_synced` and `timers` are injected at request time by `_with_runtime_flags` in `routes.py`; they are not part of what `StateStore` persists.
 
 ## Post-ship deploy (runs as part of `/ship`)
 
@@ -126,8 +132,13 @@ two units **iff that rsync transferred something** (see above). It is *not*
 and is the wrong tool for a code change. Target host comes from `PI_HOST`
 (default `pi@192.168.178.22`).
 
-Zwei Dinge, die `deploy-pi.sh` bewusst **nicht** kann, und die deshalb
+Drei Dinge, die `deploy-pi.sh` bewusst **nicht** kann, und die deshalb
 `install-pi.sh` brauchen:
+
+- **Drop-ins, sudoers, config.txt.** Schritt 8 des Installers legt
+  `/etc/systemd/journald.conf.d/`, `/etc/systemd/system.conf.d/`,
+  `/etc/sudoers.d/smart-display`, `dtparam=watchdog=on` und optional
+  `dtoverlay=gpio-shutdown` an. Nichts davon erreicht der rsync.
 
 - **Geänderte systemd-Units.** `install-pi.sh` *kopiert* `deploy/systemd/*.service`
   nach `/etc/systemd/system/` (kein Symlink). Der rsync erreicht nur

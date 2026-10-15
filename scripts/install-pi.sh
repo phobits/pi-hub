@@ -60,7 +60,7 @@ echo ""
 
 # --- 1. System-Pakete --------------------------------------------------------
 
-echo "=== 1/7  System-Pakete installieren ==="
+echo "=== 1/8  System-Pakete installieren ==="
 apt-get update -qq
 is_installable_package() {
     local candidate
@@ -78,6 +78,11 @@ if ! is_installable_package "$CHROMIUM_PACKAGE"; then
 fi
 
 OPTIONAL_KIOSK_PACKAGES=()
+# Ticket #1: compressed swap in RAM — no SD writes, buys headroom for WPE on
+# 512 MB. SMART_DISPLAY_ZRAM=false skips it.
+if [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" ]]; then
+    OPTIONAL_KIOSK_PACKAGES+=(zram-tools)
+fi
 if [[ "$INSTALL_COG" == "true" ]]; then
     for package in cog wpewebkit-driver libgles2; do
         if ! is_installable_package "$package"; then
@@ -113,7 +118,7 @@ echo "  OK"
 
 # --- 2. Projekt deployen -----------------------------------------------------
 
-echo "=== 2/7  Projekt nach $INSTALL_DIR deployen ==="
+echo "=== 2/8  Projekt nach $INSTALL_DIR deployen ==="
 if [[ "$(realpath "$SCRIPT_DIR")" != "$(realpath "$INSTALL_DIR")" ]]; then
     mkdir -p "$INSTALL_DIR"
     rsync -a --delete \
@@ -132,7 +137,7 @@ chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$INSTALL_DIR"
 
 # --- 3. Python venv + Dependencies -------------------------------------------
 
-echo "=== 3/7  Python-Umgebung einrichten ==="
+echo "=== 3/8  Python-Umgebung einrichten ==="
 sudo -u "$SERVICE_USER" python3 -m venv "$INSTALL_DIR/.venv"
 sudo -u "$SERVICE_USER" "$INSTALL_DIR/.venv/bin/pip" install --upgrade pip --quiet
 sudo -u "$SERVICE_USER" "$INSTALL_DIR/.venv/bin/pip" install -e "$INSTALL_DIR" --quiet
@@ -140,7 +145,7 @@ echo "  OK"
 
 # --- 4. .env ------------------------------------------------------------------
 
-echo "=== 4/7  Konfiguration ==="
+echo "=== 4/8  Konfiguration ==="
 if [[ ! -f "$INSTALL_DIR/.env" ]]; then
     cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
     chown "$SERVICE_USER":"$SERVICE_GROUP" "$INSTALL_DIR/.env"
@@ -164,17 +169,18 @@ fi
 
 # --- 5. Datenverzeichnis -----------------------------------------------------
 
-echo "=== 5/7  Datenverzeichnis ==="
+echo "=== 5/8  Datenverzeichnis ==="
 DATA_DIR="$INSTALL_DIR/data"
-mkdir -p "$DATA_DIR/screensaver"
+mkdir -p "$DATA_DIR/screensaver" "$DATA_DIR/measurements"
 chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$DATA_DIR"
 echo "  $DATA_DIR bereit"
 
 # --- 6. X11 / Kiosk ----------------------------------------------------------
 
-echo "=== 6/7  Kiosk vorbereiten ==="
+echo "=== 6/8  Kiosk vorbereiten ==="
 chmod +x "$INSTALL_DIR/deploy/x11/kiosk-session.sh"
 chmod +x "$INSTALL_DIR/deploy/kiosk/start-kiosk.sh"
+chmod +x "$INSTALL_DIR/scripts/measure_pi.py" "$INSTALL_DIR/scripts/pi/test-panel-blank.sh"
 
 # xinit braucht diese Einstellung damit ein non-root User X starten darf
 XWRAPPER="/etc/X11/Xwrapper.config"
@@ -194,7 +200,7 @@ echo "  OK"
 
 # --- 7. Systemd ---------------------------------------------------------------
 
-echo "=== 7/7  Systemd-Services ==="
+echo "=== 7/8  Systemd-Services ==="
 sed \
     -e "s/^User=.*/User=$SERVICE_USER/" \
     -e "s/^Group=.*/Group=$SERVICE_GROUP/" \
@@ -208,6 +214,62 @@ sed \
 systemctl daemon-reload
 systemctl enable smart-display.service smart-display-kiosk.service
 echo "  Services aktiviert für $SERVICE_USER:$SERVICE_GROUP (starten beim nächsten Boot)"
+
+# --- 8. Dauerbetrieb (Ticket #1) + Ausschalten per Touch (Ticket #2) --------
+
+echo "=== 8/8  Dauerbetrieb: journald, Watchdog, zram, sudo ==="
+
+# journald-Deckel — sonst frisst eine gesprächige Woche die SD-Karte.
+install -d -m 755 /etc/systemd/journald.conf.d
+install -m 644 "$INSTALL_DIR/deploy/systemd/journald-smart-display.conf" \
+    /etc/systemd/journald.conf.d/smart-display.conf
+systemctl restart systemd-journald
+echo "  journald: SystemMaxUse=32M"
+
+# Hardware-Watchdog: systemd füttert /dev/watchdog, ein hängender Kernel
+# rebootet nach 15 s. Braucht dtparam=watchdog=on in config.txt.
+CONFIG_TXT="/boot/firmware/config.txt"
+[[ -f "$CONFIG_TXT" ]] || CONFIG_TXT="/boot/config.txt"
+if [[ -f "$CONFIG_TXT" ]]; then
+    if ! grep -qE '^dtparam=watchdog=on' "$CONFIG_TXT"; then
+        printf '\n# smart-display: Hardware-Watchdog (Ticket #1)\ndtparam=watchdog=on\n' >> "$CONFIG_TXT"
+        echo "  config.txt: dtparam=watchdog=on ergänzt (wirkt nach Reboot)"
+    fi
+    # Optional: GPIO3 (Pin 5) gegen GND weckt den gehaltenen Pi wieder auf und
+    # löst im Betrieb einen sauberen Shutdown aus. Nur auf Wunsch, weil nicht
+    # geprüft ist, ob das Display-Board den Pin belegt.
+    if [[ "${SMART_DISPLAY_GPIO_SHUTDOWN:-false}" == "true" ]] \
+        && ! grep -qE '^dtoverlay=gpio-shutdown' "$CONFIG_TXT"; then
+        printf '\n# smart-display: Pin 5 auf GND = Shutdown / Aufwecken (Ticket #2)\ndtoverlay=gpio-shutdown\n' >> "$CONFIG_TXT"
+        echo "  config.txt: dtoverlay=gpio-shutdown ergänzt (wirkt nach Reboot)"
+    fi
+else
+    echo "  Warnung: config.txt nicht gefunden — Watchdog-dtparam manuell setzen." >&2
+fi
+install -d -m 755 /etc/systemd/system.conf.d
+install -m 644 "$INSTALL_DIR/deploy/systemd/system-watchdog.conf" \
+    /etc/systemd/system.conf.d/smart-display-watchdog.conf
+echo "  systemd: RuntimeWatchdogSec=15 (wirkt nach Reboot bzw. daemon-reexec)"
+
+# zram-Swap (128 MB komprimiert im RAM, keine SD-Schreibzugriffe).
+if [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" && -f /etc/default/zramswap ]]; then
+    sed -i -e 's/^#\?SIZE=.*/SIZE=128/' -e 's/^#\?PERCENT=.*/#PERCENT=/' /etc/default/zramswap
+    grep -qE '^SIZE=' /etc/default/zramswap || echo "SIZE=128" >> /etc/default/zramswap
+    systemctl enable zramswap.service >/dev/null 2>&1 || true
+    echo "  zram: 128 MB (aktiv nach Reboot)"
+fi
+
+# sudo-Regel: genau zwei Kommandos für den Ausschaltknopf, nichts sonst.
+SUDOERS_TMP="$(mktemp)"
+sed "s/^pi /$SERVICE_USER /" "$INSTALL_DIR/deploy/sudoers/smart-display" > "$SUDOERS_TMP"
+if visudo -cf "$SUDOERS_TMP" >/dev/null; then
+    install -m 440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/smart-display
+    echo "  sudoers: $SERVICE_USER darf systemctl poweroff|reboot"
+else
+    echo "  Fehler: sudoers-Regel ungültig, nicht installiert." >&2
+fi
+rm -f "$SUDOERS_TMP"
+echo "  Hinweis: APP_ALLOW_SHUTDOWN=true in $INSTALL_DIR/.env schaltet den Knopf frei."
 
 # --- Fertig -------------------------------------------------------------------
 

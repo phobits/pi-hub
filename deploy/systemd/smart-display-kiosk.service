@@ -14,6 +14,12 @@ ExecStartPre=+/usr/bin/install -d -m 1777 -o root -g root /tmp/.X11-unix
 ExecStart=/opt/smart-display/deploy/kiosk/start-kiosk.sh
 Restart=always
 RestartSec=5
+# Ticket #1: under OOM pressure kill the browser before the backend.
+OOMScoreAdjust=500
+# Hard cap for Cog + WPE helpers. Deliberately unset until the baseline from
+# scripts/measure_pi.py exists — a cap below real need turns into a restart
+# loop. Suggested starting point once measured: peak RSS sum + 25 %.
+#MemoryMax=320M
 
 [Install]
 WantedBy=multi-user.target

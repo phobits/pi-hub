@@ -366,3 +366,89 @@ class SchemaMismatchQuarantineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PersistenceDebounceTest(unittest.TestCase):
+    """Ticket #1: progress-only Spotify refreshes must not rewrite
+    last_good.json; real changes always do; a deferred write lands on flush."""
+
+    def _store_with_counter(self, temp_dir: str, clock):
+        from smart_display.config import load_config_from_mapping
+
+        config = load_config_from_mapping(
+            {"app": {"data_dir": temp_dir}}, root_dir=Path(temp_dir)
+        )
+        store = StateStore(config, monotonic=clock.monotonic)
+        writes = {"count": 0}
+        original_save = store._cache.save
+
+        def counting_save(payload):
+            writes["count"] += 1
+            original_save(payload)
+
+        store._cache.save = counting_save  # type: ignore[method-assign]
+        return store, writes
+
+    def _playing(self, progress_ms: int) -> SpotifyState:
+        return SpotifyState(
+            snapshot=ProviderSnapshot(status="ok", updated_at=f"t{progress_ms}"),
+            connected=True,
+            is_playing=True,
+            track_title="Song",
+            artist_name="Band",
+            can_control=True,
+            progress_ms=progress_ms,
+            duration_ms=240_000,
+        )
+
+    def test_progress_only_updates_are_debounced(self) -> None:
+        from tests._support import FakeClock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clock = FakeClock(monotonic=1000.0)
+            store, writes = self._store_with_counter(temp_dir, clock)
+            store.update_section("spotify", self._playing(0))
+            self.assertEqual(writes["count"], 1)
+            for step in range(1, 21):
+                clock.advance(10)
+                store.update_section("spotify", self._playing(step * 10_000))
+            self.assertEqual(writes["count"], 1)
+            # In-memory state is current regardless.
+            self.assertEqual(store.get_state().spotify.progress_ms, 200_000)
+
+    def test_real_change_writes_immediately(self) -> None:
+        from tests._support import FakeClock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clock = FakeClock(monotonic=1000.0)
+            store, writes = self._store_with_counter(temp_dir, clock)
+            store.update_section("spotify", self._playing(0))
+            clock.advance(10)
+            paused = self._playing(10_000)
+            paused.is_playing = False
+            store.update_section("spotify", paused)
+            self.assertEqual(writes["count"], 2)
+            store.mark_error("spotify", error_message="x", stale_after_seconds=60, source="spotify")
+            self.assertEqual(writes["count"], 3)
+
+    def test_deferred_write_lands_after_interval_or_flush(self) -> None:
+        from smart_display.state_store import PERSIST_MIN_INTERVAL_SECONDS
+        from tests._support import FakeClock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            clock = FakeClock(monotonic=1000.0)
+            store, writes = self._store_with_counter(temp_dir, clock)
+            store.update_section("spotify", self._playing(0))
+            clock.advance(30)
+            store.update_section("spotify", self._playing(30_000))
+            self.assertEqual(writes["count"], 1)
+            store.flush()
+            self.assertEqual(writes["count"], 2)
+            store.flush()  # nothing pending
+            self.assertEqual(writes["count"], 2)
+
+            clock.advance(PERSIST_MIN_INTERVAL_SECONDS + 1)
+            store.update_section("spotify", self._playing(60_000))
+            self.assertEqual(writes["count"], 3)
+            payload = json.loads(store.config.last_good_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["spotify"]["progress_ms"], 60_000)

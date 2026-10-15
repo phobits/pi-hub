@@ -25,6 +25,8 @@
     weather: "",
     calendar: "",
     spotify: "",
+    timers: "",
+    system: "",
   };
   const SPOTIFY_PROGRESS_KEYS = new Set(["progress_ms", "duration_ms"]);
   // Plan B1 watchdog: while the screensaver is visible we re-POST
@@ -148,6 +150,16 @@
     "9": "abcdfg",
   };
   const WATCH_FACE_STORAGE_KEY = "sd.watch_face";
+  // Ticket #2: night window from the server config ({from, to} or null) and
+  // the user's override (auto | on | off) persisted like the watch face.
+  const NIGHT_MODE_STORAGE_KEY = "sd.night_mode";
+  const NIGHT_WINDOW = config.night || null;
+  const VALID_NIGHT_MODES = ["auto", "on", "off"];
+  // Ticket #2: hold-to-confirm for power actions.
+  const HOLD_MS = 2000;
+  // Ticket #3: mirrors timers.RING_TIMEOUT_SECONDS — a ringing timer nobody
+  // acknowledges disappears after this, so an empty flat does not pulse all day.
+  const TIMER_RING_TIMEOUT_S = 600;
   let qlocktwoLetterIndex = null;
   let lastQlocktwoKey = "";
   let qlocktwoOoeLetterIndex = null;
@@ -619,6 +631,7 @@
     } else {
       stopAnalogSecondTick();
     }
+    syncFaceChips(next);
     return next;
   }
 
@@ -636,6 +649,18 @@
     }
     applyWatchFace(next);
     showToast(`Uhrzeit-Stil: ${WATCH_FACE_LABELS[next] || next}`, "info", 1600);
+  }
+
+  function selectWatchFace(face) {
+    if (!VALID_WATCH_FACES.includes(face)) return;
+    try {
+      if (window.localStorage) {
+        window.localStorage.setItem(WATCH_FACE_STORAGE_KEY, face);
+      }
+    } catch (error) {
+      /* storage disabled — session-only */
+    }
+    applyWatchFace(face);
   }
 
   const nodes = {
@@ -725,6 +750,40 @@
     screensaverImageA: document.getElementById("screensaver-image-a"),
     screensaverImageB: document.getElementById("screensaver-image-b"),
     screensaverFallback: document.getElementById("screensaver-fallback"),
+    // Ticket #2: info overlay over photos / dim night clock.
+    screensaverInfo: document.getElementById("screensaver-info"),
+    screensaverTime: document.getElementById("screensaver-time"),
+    screensaverDate: document.getElementById("screensaver-date"),
+    screensaverWeather: document.getElementById("screensaver-weather"),
+    screensaverWeatherSep: document.getElementById("screensaver-weather-sep"),
+    screensaverTimer: document.getElementById("screensaver-timer"),
+    // Ticket #1: NTP hint.
+    clockSyncHint: document.getElementById("clock-sync-hint"),
+    // Ticket #3: timer chip + alarm.
+    timerChip: document.getElementById("timer-chip"),
+    timerChipIcon: document.getElementById("timer-chip-icon"),
+    timerChipText: document.getElementById("timer-chip-text"),
+    timerAlarm: document.getElementById("timer-alarm"),
+    timerAlarmTitle: document.getElementById("timer-alarm-title"),
+    timerAlarmLabel: document.getElementById("timer-alarm-label"),
+    timerAlarmStop: document.getElementById("timer-alarm-stop"),
+    timerAlarmExtend: document.getElementById("timer-alarm-extend"),
+    // Ticket #2/#3: quick sheet.
+    sheetHandle: document.getElementById("sheet-handle"),
+    quickSheet: document.getElementById("quick-sheet"),
+    quickSheetBackdrop: document.getElementById("quick-sheet-backdrop"),
+    quickSheetPanel: document.getElementById("quick-sheet-panel"),
+    quickSheetClose: document.getElementById("quick-sheet-close"),
+    timerPresets: document.getElementById("timer-presets"),
+    timerList: document.getElementById("timer-list"),
+    faceChips: document.getElementById("face-chips"),
+    nightChips: document.getElementById("night-chips"),
+    nightNote: document.getElementById("night-note"),
+    powerReboot: document.getElementById("power-reboot"),
+    powerShutdown: document.getElementById("power-shutdown"),
+    powerNote: document.getElementById("power-note"),
+    powerOverlay: document.getElementById("power-overlay"),
+    powerOverlayText: document.getElementById("power-overlay-text"),
     toast: document.getElementById("toast"),
   };
   let volumeCommitTimer = null;
@@ -943,6 +1002,8 @@
       '<svg viewBox="0 0 32 32" fill="currentColor"><rect x="10" y="8" width="4.5" height="16" rx="1.5"></rect><rect x="17.5" y="8" width="4.5" height="16" rx="1.5"></rect></svg>',
     device:
       '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="9" width="18" height="12" rx="2"></rect><path d="M12 25h8"></path></svg>',
+    timer:
+      '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="16" cy="18" r="10"></circle><path d="M16 12v6l4 2"></path><path d="M13 4h6"></path><path d="M16 4v4"></path></svg>',
   };
 
   function weatherIconName(conditionCode) {
@@ -1006,7 +1067,12 @@
       const part = dateParts.find((p) => p.type === type);
       return part ? part.value : "";
     };
-    nodes.date.textContent = `${datePart("weekday")} · ${datePart("day")}. ${datePart("month")}`;
+    const dateLabel = `${datePart("weekday")} · ${datePart("day")}. ${datePart("month")}`;
+    nodes.date.textContent = dateLabel;
+    // Ticket #2: the photo/night overlay is a text clock — one write a minute.
+    nodes.screensaverDate.textContent = dateLabel;
+    nodes.screensaverTime.textContent = CLOCK_TIME_FMT.format(now);
+    applyNight(false);
     if (screensaverActive) {
       updateScreensaverFlip(false);
       return;
@@ -1068,6 +1134,14 @@
     } else {
       nodes.weatherSecondary.textContent = "";
     }
+
+    // Ticket #2: screensaver overlay gets temperature + condition, nothing else.
+    const screensaverWeather =
+      typeof weather.temperature_c === "number"
+        ? `${Math.round(weather.temperature_c)}°${weather.condition ? ` · ${weather.condition}` : ""}`
+        : "";
+    nodes.screensaverWeather.textContent = screensaverWeather;
+    nodes.screensaverWeatherSep.classList.toggle("is-hidden", screensaverWeather === "");
 
     nodes.weatherForecast.innerHTML = "";
     const forecastItems = Array.isArray(weather.forecast) ? weather.forecast.slice(0, 3) : [];
@@ -1529,6 +1603,27 @@
       renderCalendar(state.calendar || {});
       lastRenderedSectionKeys.calendar = keys.calendar;
     }
+    // Ticket #3: timers are keyed on identity + ends_at, not on the server's
+    // remaining_seconds, which changes every poll by definition.
+    const timerKey = sectionRenderKey(
+      (Array.isArray(state.timers) ? state.timers : []).map((t) => [t.id, t.ends_at, t.label]),
+    );
+    if (options.force || timerKey !== lastRenderedSectionKeys.timers) {
+      applyTimers(Array.isArray(state.timers) ? state.timers : []);
+      lastRenderedSectionKeys.timers = timerKey;
+    }
+    const systemKey = sectionRenderKey(state.system, new Set(["generated_at"]));
+    if (options.force || systemKey !== lastRenderedSectionKeys.system) {
+      renderSystem(state.system || {});
+      lastRenderedSectionKeys.system = systemKey;
+    }
+  }
+
+  // Ticket #1: the clock is the hero. If timesyncd has not stepped it yet the
+  // digits are fake-hwclock's guess — say so under the date, nothing else.
+  function renderSystem(system) {
+    const synced = system.time_synced !== false;
+    nodes.clockSyncHint.classList.toggle("is-hidden", synced);
   }
 
   function scheduleMidnightRerender() {
@@ -1576,7 +1671,12 @@
       if (!response.ok || !body || body.ok === false) {
         return { ok: false, message: (body && body.message) || "Netzwerkfehler.", state: null };
       }
-      return { ok: true, message: body.message || "ok", state: body.state || null };
+      return {
+        ok: true,
+        message: body.message || "ok",
+        state: body.state || null,
+        timers: Array.isArray(body.timers) ? body.timers : null,
+      };
     } catch (error) {
       return { ok: false, message: "Netzwerkfehler.", state: null };
     }
@@ -1593,7 +1693,12 @@
       if (!response.ok || !body || body.ok === false) {
         return { ok: false, message: (body && body.message) || "Netzwerkfehler.", state: null };
       }
-      return { ok: true, message: body.message || "ok", state: body.state || null };
+      return {
+        ok: true,
+        message: body.message || "ok",
+        state: body.state || null,
+        timers: Array.isArray(body.timers) ? body.timers : null,
+      };
     } catch (error) {
       return { ok: false, message: "Netzwerkfehler.", state: null };
     }
@@ -1808,8 +1913,17 @@
     const endY = typeof y === "number" ? y : gesture.lastY;
     const dx = endX - gesture.x;
     const dy = endY - gesture.y;
+    if (performance.now() - gesture.at > SWIPE_MAX_MS) {
+      return;
+    }
+    // Ticket #2/#3: a clear upward swipe opens the quick sheet. Same length
+    // and axis-ratio thresholds as the horizontal page swipe, mirrored.
+    if (-dy >= SWIPE_MIN_X && Math.abs(dy) > Math.abs(dx) * SWIPE_AXIS_RATIO) {
+      suppressClickUntil = performance.now() + 150;
+      openQuickSheet();
+      return;
+    }
     if (
-      performance.now() - gesture.at > SWIPE_MAX_MS ||
       Math.abs(dx) < SWIPE_MIN_X ||
       Math.abs(dx) < Math.abs(dy) * SWIPE_AXIS_RATIO
     ) {
@@ -2195,7 +2309,7 @@
     nextSlot.classList.add("is-active");
     activeScreensaverSlot.classList.remove("is-active");
     activeScreensaverSlot = nextSlot;
-    nodes.screensaverFallback.style.display = "none";
+    setScreensaverMode("photo");
   }
 
   function showScreensaverFallback() {
@@ -2204,7 +2318,53 @@
       slot.classList.remove("is-active");
     });
     activeScreensaverSlot = null;
-    nodes.screensaverFallback.style.display = "flex";
+    setScreensaverMode("fallback");
+  }
+
+  // Ticket #2: one class decides what the screensaver shows —
+  //   photo    → slideshow + text clock bottom-left
+  //   fallback → the big flip clock (no photos available)
+  //   night    → black, dim centred text clock, no photos at all
+  let screensaverMode = "";
+
+  function setScreensaverMode(mode) {
+    if (mode === screensaverMode) return;
+    screensaverMode = mode;
+    ["photo", "fallback", "night"].forEach((name) => {
+      nodes.screensaver.classList.toggle(`screensaver--${name}`, name === mode);
+    });
+  }
+
+  function startSlideshow() {
+    window.clearInterval(slideshowTimer);
+    loadScreensaverImage();
+    slideshowTimer = window.setInterval(
+      loadScreensaverImage,
+      Math.max((config.image_duration_seconds || 15) * 1000, 5000),
+    );
+  }
+
+  function stopSlideshow() {
+    window.clearInterval(slideshowTimer);
+    slideshowTimer = null;
+  }
+
+  // Called on enter and whenever night flips while the screensaver is up.
+  function refreshScreensaverPresentation() {
+    if (!screensaverActive) return;
+    if (isNightActive()) {
+      stopSlideshow();
+      [nodes.screensaverImageA, nodes.screensaverImageB].forEach((slot) => {
+        slot.removeAttribute("src");
+        slot.classList.remove("is-active");
+      });
+      activeScreensaverSlot = null;
+      setScreensaverMode("night");
+      return;
+    }
+    if (slideshowTimer === null) {
+      startSlideshow();
+    }
   }
 
   function notifyScreensaverState(active) {
@@ -2227,19 +2387,24 @@
     if (screensaverActive) {
       return;
     }
+    // A ringing timer owns the panel; never cover it with the slideshow.
+    if (alarmTimerId !== null) {
+      resetIdleTimer();
+      return;
+    }
     screensaverActive = true;
     setActiveScreen("home", { animate: false });
     stopProgressTimer();
     stopAnalogSecondTick();
     closeSpotifyPicker();
+    closeQuickSheet();
     nodes.screensaver.classList.add("is-active");
     nodes.screensaver.setAttribute("aria-hidden", "false");
-    loadScreensaverImage();
-    window.clearInterval(slideshowTimer);
-    slideshowTimer = window.setInterval(
-      loadScreensaverImage,
-      Math.max((config.image_duration_seconds || 15) * 1000, 5000),
-    );
+    // The text clock is written once a minute by updateClock; make sure the
+    // first frame is current rather than up to 59 s old.
+    nodes.screensaverTime.textContent = CLOCK_TIME_FMT.format(new Date());
+    screensaverMode = "";
+    refreshScreensaverPresentation();
     notifyScreensaverState(true);
     window.clearInterval(screensaverHeartbeatTimer);
     screensaverHeartbeatTimer = window.setInterval(
@@ -2255,7 +2420,7 @@
     screensaverActive = false;
     nodes.screensaver.classList.remove("is-active");
     nodes.screensaver.setAttribute("aria-hidden", "true");
-    window.clearInterval(slideshowTimer);
+    stopSlideshow();
     window.clearInterval(screensaverHeartbeatTimer);
     screensaverHeartbeatTimer = null;
     resetIdleTimer();
@@ -2278,6 +2443,402 @@
       exitScreensaver();
       return;
     }
+    resetIdleTimer();
+  }
+
+  // ---- Night window (Ticket #2) ------------------------------------------
+  // Mirrors smart_display/night.py. The server renders data-night for the
+  // first frame; from then on the minute tick re-evaluates here.
+  function parseHhmm(value) {
+    if (typeof value !== "string" || !value.includes(":")) return null;
+    const [h, m] = value.trim().split(":");
+    if (!/^\d+$/.test(h) || !/^\d+$/.test(m)) return null;
+    const hours = Number(h);
+    const minutes = Number(m);
+    if (hours > 23 || minutes > 59) return null;
+    return hours * 60 + minutes;
+  }
+
+  function isNightMinutes(minuteOfDay, start, end) {
+    if (start === null || end === null || start === end) return false;
+    if (start < end) return minuteOfDay >= start && minuteOfDay < end;
+    return minuteOfDay >= start || minuteOfDay < end;
+  }
+
+  function nightModeSetting() {
+    try {
+      const stored = window.localStorage && window.localStorage.getItem(NIGHT_MODE_STORAGE_KEY);
+      if (stored && VALID_NIGHT_MODES.includes(stored)) return stored;
+    } catch (error) {
+      /* storage disabled */
+    }
+    return "auto";
+  }
+
+  function setNightModeSetting(mode) {
+    if (!VALID_NIGHT_MODES.includes(mode)) return;
+    try {
+      if (window.localStorage) window.localStorage.setItem(NIGHT_MODE_STORAGE_KEY, mode);
+    } catch (error) {
+      /* session-only */
+    }
+    applyNight(true);
+  }
+
+  function windowSaysNight() {
+    if (!NIGHT_WINDOW) return false;
+    const { hour, minute } = currentHourMinute();
+    return isNightMinutes(
+      hour * 60 + minute,
+      parseHhmm(NIGHT_WINDOW.from),
+      parseHhmm(NIGHT_WINDOW.to),
+    );
+  }
+
+  function isNightActive() {
+    const mode = nightModeSetting();
+    if (mode === "on") return true;
+    if (mode === "off") return false;
+    return windowSaysNight();
+  }
+
+  let lastNightValue = null;
+
+  function applyNight(force) {
+    const active = isNightActive();
+    if (!force && active === lastNightValue) return;
+    lastNightValue = active;
+    document.body.setAttribute("data-night", active ? "true" : "false");
+    syncNightChips();
+    refreshScreensaverPresentation();
+  }
+
+  function syncNightChips() {
+    const mode = nightModeSetting();
+    nodes.nightChips.querySelectorAll("[data-night-mode]").forEach((chip) => {
+      chip.classList.toggle("is-selected", chip.dataset.nightMode === mode);
+    });
+    let note;
+    if (!NIGHT_WINDOW) {
+      note = "Kein Nachtfenster konfiguriert (APP_NIGHT_FROM / APP_NIGHT_TO).";
+    } else {
+      note = `Automatisch von ${NIGHT_WINDOW.from} bis ${NIGHT_WINDOW.to} Uhr.`;
+    }
+    if (mode !== "auto") {
+      note += mode === "on" ? " Manuell eingeschaltet." : " Manuell ausgeschaltet.";
+    }
+    nodes.nightNote.textContent = note;
+  }
+
+  // ---- Quick sheet (Ticket #2/#3) ------------------------------------------
+  let quickSheetOpen = false;
+
+  function openQuickSheet() {
+    if (quickSheetOpen || screensaverActive) return;
+    quickSheetOpen = true;
+    closeSpotifyPicker();
+    renderFaceChips();
+    syncNightChips();
+    renderTimerList();
+    nodes.quickSheet.classList.add("is-open");
+    nodes.quickSheet.setAttribute("aria-hidden", "false");
+  }
+
+  function closeQuickSheet() {
+    if (!quickSheetOpen) return;
+    quickSheetOpen = false;
+    nodes.quickSheet.classList.remove("is-open");
+    nodes.quickSheet.setAttribute("aria-hidden", "true");
+  }
+
+  let faceChipsBuilt = false;
+
+  function renderFaceChips() {
+    if (faceChipsBuilt) {
+      syncFaceChips(document.body.getAttribute("data-watch-face") || "flip");
+      return;
+    }
+    faceChipsBuilt = true;
+    const fragment = document.createDocumentFragment();
+    VALID_WATCH_FACES.forEach((face) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.dataset.face = face;
+      chip.textContent = WATCH_FACE_LABELS[face] || face;
+      chip.addEventListener("click", () => selectWatchFace(face));
+      fragment.appendChild(chip);
+    });
+    nodes.faceChips.replaceChildren(fragment);
+    syncFaceChips(document.body.getAttribute("data-watch-face") || "flip");
+  }
+
+  function syncFaceChips(face) {
+    if (!faceChipsBuilt) return;
+    nodes.faceChips.querySelectorAll("[data-face]").forEach((chip) => {
+      chip.classList.toggle("is-selected", chip.dataset.face === face);
+    });
+  }
+
+  // Hold-to-confirm: pointerdown starts the 2 s fill; any release before that
+  // cancels. One gesture family at a time, so Pointer + Touch engines cannot
+  // double-start.
+  function bindHoldButton(node, onConfirm) {
+    let holdTimer = null;
+    let holdSource = null;
+    const start = (source) => (event) => {
+      if (node.disabled || holdTimer !== null) return;
+      if (source === "pointer" && event.isPrimary === false) return;
+      holdSource = source;
+      node.classList.add("is-holding");
+      holdTimer = window.setTimeout(() => {
+        holdTimer = null;
+        holdSource = null;
+        node.classList.remove("is-holding");
+        onConfirm();
+      }, HOLD_MS);
+    };
+    const cancel = (source) => () => {
+      if (holdTimer === null || holdSource !== source) return;
+      window.clearTimeout(holdTimer);
+      holdTimer = null;
+      holdSource = null;
+      node.classList.remove("is-holding");
+    };
+    node.addEventListener("pointerdown", start("pointer"), { passive: true });
+    ["pointerup", "pointercancel", "pointerleave"].forEach((name) => {
+      node.addEventListener(name, cancel("pointer"), { passive: true });
+    });
+    node.addEventListener("touchstart", start("touch"), { passive: true });
+    ["touchend", "touchcancel"].forEach((name) => {
+      node.addEventListener(name, cancel("touch"), { passive: true });
+    });
+    // A click is the synthetic tail of a hold gesture — never a confirmation.
+    node.addEventListener("click", (event) => event.preventDefault());
+  }
+
+  // ---- Power (Ticket #2) -----------------------------------------------------
+  async function requestPower(action) {
+    const result = await postAction(`/api/system/${action}`);
+    if (!result.ok) {
+      showToast(result.message || "Befehl fehlgeschlagen.");
+      return;
+    }
+    closeQuickSheet();
+    nodes.powerOverlayText.textContent =
+      action === "reboot" ? "Wird neu gestartet …" : "Wird ausgeschaltet …";
+    nodes.powerOverlay.classList.add("is-active");
+    nodes.powerOverlay.setAttribute("aria-hidden", "false");
+    // Stop waking the Pi for a page that is about to go away.
+    window.clearTimeout(pollTimer);
+    window.clearTimeout(idleTimer);
+  }
+
+  function syncPowerButtons() {
+    const allowed = Boolean(config.allow_shutdown);
+    nodes.powerReboot.disabled = !allowed;
+    nodes.powerShutdown.disabled = !allowed;
+    nodes.powerNote.textContent = allowed
+      ? "Fährt den Pi sauber herunter. Wieder einschalten: Strom kurz trennen."
+      : "Auf diesem Gerät nicht freigegeben (APP_ALLOW_SHUTDOWN=true in .env).";
+  }
+
+  // ---- Timers (Ticket #3) ----------------------------------------------------
+  // Server truth is `ends_at` (epoch seconds, same clock as the browser). The
+  // 1 Hz tick exists only while a timer is live; idle panels tick nothing.
+  let timers = [];
+  let timerTickHandle = null;
+  let alarmTimerId = null;
+  // Timers the user already dismissed locally — hidden even if a stale poll
+  // still lists them while the POST is in flight.
+  const dismissedLocally = new Set();
+
+  function nowSeconds() {
+    return Date.now() / 1000;
+  }
+
+  function timerRemaining(timer) {
+    return timer.ends_at - nowSeconds();
+  }
+
+  function timerStatus(timer) {
+    if (timer.dismissed || dismissedLocally.has(timer.id)) return "done";
+    const remaining = timerRemaining(timer);
+    if (remaining > 0) return "running";
+    if (-remaining < TIMER_RING_TIMEOUT_S) return "ringing";
+    return "done";
+  }
+
+  function formatRemaining(seconds) {
+    const total = Math.max(0, Math.ceil(seconds));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const mm = String(m).padStart(2, "0");
+    const ss = String(s).padStart(2, "0");
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  function liveTimers() {
+    return timers.filter((timer) => timerStatus(timer) !== "done");
+  }
+
+  function applyTimers(list) {
+    timers = list.map((timer) => ({ ...timer }));
+    // Server has caught up with whatever we dismissed; forget the overrides
+    // for ids it no longer lists.
+    const ids = new Set(timers.map((t) => t.id));
+    dismissedLocally.forEach((id) => {
+      if (!ids.has(id)) dismissedLocally.delete(id);
+    });
+    renderTimerList();
+    timerTick();
+    if (liveTimers().length > 0) {
+      ensureTimerTick();
+    } else {
+      stopTimerTick();
+    }
+  }
+
+  function ensureTimerTick() {
+    if (timerTickHandle !== null) return;
+    const msUntilNextSecond = 1000 - (Date.now() % 1000);
+    timerTickHandle = window.setTimeout(function tick() {
+      timerTick();
+      if (liveTimers().length > 0) {
+        timerTickHandle = window.setTimeout(tick, 1000);
+      } else {
+        timerTickHandle = null;
+      }
+    }, msUntilNextSecond + 5);
+  }
+
+  function stopTimerTick() {
+    if (timerTickHandle !== null) {
+      window.clearTimeout(timerTickHandle);
+      timerTickHandle = null;
+    }
+  }
+
+  // Writes the per-second surfaces: chip, screensaver line, sheet rows, alarm.
+  function timerTick() {
+    const live = liveTimers();
+    const ringing = live.find((timer) => timerStatus(timer) === "ringing") || null;
+    // Soonest running timer is what the chip shows; a ringing one wins.
+    const running = live
+      .filter((timer) => timerStatus(timer) === "running")
+      .sort((a, b) => a.ends_at - b.ends_at);
+    const shown = ringing || running[0] || null;
+
+    nodes.timerChip.classList.toggle("is-hidden", shown === null);
+    nodes.screensaverTimer.classList.toggle("is-hidden", shown === null);
+    if (shown) {
+      const text = ringing ? "Abgelaufen" : formatRemaining(timerRemaining(shown));
+      nodes.timerChipText.textContent = text;
+      nodes.timerChip.classList.toggle("is-ringing", Boolean(ringing));
+      const label = shown.label ? `${shown.label} · ` : "";
+      nodes.screensaverTimer.textContent = `Timer ${label}${text}`;
+    }
+
+    if (quickSheetOpen) {
+      nodes.timerList.querySelectorAll("[data-timer-id]").forEach((row) => {
+        const timer = timers.find((t) => t.id === row.dataset.timerId);
+        const remainingNode = row.querySelector(".timer-row__remaining");
+        if (!timer || !remainingNode) return;
+        const status = timerStatus(timer);
+        row.classList.toggle("is-ringing", status === "ringing");
+        remainingNode.textContent =
+          status === "ringing" ? "Abgelaufen" : formatRemaining(timerRemaining(timer));
+      });
+    }
+
+    if (ringing) {
+      showAlarm(ringing);
+    } else if (alarmTimerId !== null) {
+      hideAlarm();
+    }
+  }
+
+  function renderTimerList() {
+    const live = liveTimers().sort((a, b) => a.ends_at - b.ends_at);
+    if (live.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "timer-list__empty";
+      empty.textContent = "Kein Timer aktiv.";
+      nodes.timerList.replaceChildren(empty);
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    live.forEach((timer) => {
+      const row = document.createElement("div");
+      row.className = "timer-row";
+      row.dataset.timerId = timer.id;
+      const remaining = document.createElement("div");
+      remaining.className = "timer-row__remaining";
+      remaining.textContent = formatRemaining(timerRemaining(timer));
+      const label = document.createElement("div");
+      label.className = "timer-row__label";
+      label.textContent = timer.label || `${Math.round(timer.duration_seconds / 60)} Min`;
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "timer-row__cancel";
+      cancel.textContent = "Abbrechen";
+      cancel.addEventListener("click", () => timerAction(timer.id, "cancel"));
+      row.append(remaining, label, cancel);
+      fragment.appendChild(row);
+    });
+    nodes.timerList.replaceChildren(fragment);
+  }
+
+  async function createTimer(minutes) {
+    const result = await postJson("/api/timers", { duration_seconds: minutes * 60 });
+    if (!result.ok) {
+      showToast(result.message || "Timer konnte nicht gestartet werden.");
+      return;
+    }
+    if (Array.isArray(result.timers)) {
+      lastRenderedSectionKeys.timers = "";
+      applyTimers(result.timers);
+    }
+  }
+
+  async function timerAction(timerId, action, payload) {
+    if (action === "dismiss" || action === "cancel") {
+      dismissedLocally.add(timerId);
+      timerTick();
+      renderTimerList();
+    }
+    const result = payload
+      ? await postJson(`/api/timers/${encodeURIComponent(timerId)}/${action}`, payload)
+      : await postAction(`/api/timers/${encodeURIComponent(timerId)}/${action}`);
+    if (!result.ok && result.message !== "Timer nicht gefunden.") {
+      dismissedLocally.delete(timerId);
+      showToast(result.message || "Timer-Aktion fehlgeschlagen.");
+    }
+    if (Array.isArray(result.timers)) {
+      lastRenderedSectionKeys.timers = "";
+      applyTimers(result.timers);
+    } else {
+      fetchState();
+    }
+  }
+
+  function showAlarm(timer) {
+    if (alarmTimerId === timer.id) return;
+    alarmTimerId = timer.id;
+    if (screensaverActive) exitScreensaver();
+    closeQuickSheet();
+    nodes.timerAlarmTitle.textContent = "Timer abgelaufen";
+    nodes.timerAlarmLabel.textContent =
+      timer.label || `${Math.round(timer.duration_seconds / 60)} Minuten`;
+    nodes.timerAlarm.classList.add("is-active");
+    nodes.timerAlarm.setAttribute("aria-hidden", "false");
+  }
+
+  function hideAlarm() {
+    alarmTimerId = null;
+    nodes.timerAlarm.classList.remove("is-active");
+    nodes.timerAlarm.setAttribute("aria-hidden", "true");
     resetIdleTimer();
   }
 
@@ -2499,13 +3060,63 @@
       nodes.pickerTransfer.addEventListener("click", () => startFromPicker(null));
     }
 
+    // ---- Quick sheet, timers, night, power (Tickets #2/#3) -----------------
+    nodes.sheetHandle.addEventListener("click", () => {
+      if (screensaverActive) return;
+      if (quickSheetOpen) closeQuickSheet();
+      else openQuickSheet();
+    });
+    nodes.quickSheetClose.addEventListener("click", closeQuickSheet);
+    nodes.quickSheetBackdrop.addEventListener("click", closeQuickSheet);
+    // Swipe down on the panel closes it; buttons inside still tap normally.
+    let sheetSwipeStartY = null;
+    nodes.quickSheetPanel.addEventListener("pointerdown", (event) => {
+      sheetSwipeStartY = event.clientY;
+    }, { passive: true });
+    nodes.quickSheetPanel.addEventListener("pointerup", (event) => {
+      if (sheetSwipeStartY !== null && event.clientY - sheetSwipeStartY >= SWIPE_MIN_X) {
+        closeQuickSheet();
+      }
+      sheetSwipeStartY = null;
+    }, { passive: true });
+
+    nodes.timerPresets.querySelectorAll("[data-minutes]").forEach((chip) => {
+      chip.addEventListener("click", () => createTimer(Number(chip.dataset.minutes)));
+    });
+    nodes.timerChip.addEventListener("click", () => {
+      if (screensaverActive) return;
+      openQuickSheet();
+    });
+    nodes.timerAlarmStop.addEventListener("click", () => {
+      if (alarmTimerId === null) return;
+      const id = alarmTimerId;
+      hideAlarm();
+      timerAction(id, "dismiss");
+    });
+    nodes.timerAlarmExtend.addEventListener("click", () => {
+      if (alarmTimerId === null) return;
+      const id = alarmTimerId;
+      hideAlarm();
+      timerAction(id, "extend", { seconds: 60 });
+    });
+
+    nodes.nightChips.querySelectorAll("[data-night-mode]").forEach((chip) => {
+      chip.addEventListener("click", () => setNightModeSetting(chip.dataset.nightMode));
+    });
+
+    bindHoldButton(nodes.powerReboot, () => requestPower("reboot"));
+    bindHoldButton(nodes.powerShutdown, () => requestPower("shutdown"));
+    syncPowerButtons();
+
     window.addEventListener("resize", () => {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => render(state, { force: true }), 80);
     });
   }
 
+  setIcon(nodes.timerChipIcon, "timer");
   applyWatchFace(currentWatchFace());
+  applyNight(true);
   bindEvents();
   updateClock();
   render(state, { force: true });

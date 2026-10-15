@@ -7,7 +7,10 @@
     "data_dir": "./data",
     "log_level": "INFO",
     "demo_mode": false,
-    "watch_face": "flip"
+    "watch_face": "flip",
+    "night_from": "22:30",
+    "night_to": "06:00",
+    "allow_shutdown": false
   },
   "weather": {
     "enabled": true,

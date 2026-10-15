@@ -9,7 +9,9 @@ from zoneinfo import ZoneInfo
 
 from smart_display.i18n import format_initial_clock
 from smart_display.models import PhotoManifestEntry
+from smart_display.night import is_night, window_for_ui
 from smart_display.scheduler import DEFAULT_PAUSE_TTL_SECONDS
+from smart_display.system_probe import time_is_synchronized
 from smart_display.watch_faces import (
     QLOCKTWO_GRID,
     QLOCKTWO_OOE_GRID,
@@ -38,6 +40,18 @@ def _poll_interval_seconds(config) -> int:
     )
 
 
+def _with_runtime_flags(state: dict, services: dict) -> dict:
+    """Facts that are true *now* and not worth persisting in last_good.json:
+    NTP sync (Ticket #1) and the live timer view (Ticket #3, status derived
+    from the clock)."""
+    probe = services.get("time_sync_probe", time_is_synchronized)
+    state["system"]["time_synced"] = bool(probe())
+    timer_service = services.get("timer_service")
+    if timer_service is not None:
+        state["timers"] = timer_service.list()
+    return state
+
+
 def create_blueprint() -> Blueprint:
     blueprint = Blueprint("web", __name__)
 
@@ -45,12 +59,14 @@ def create_blueprint() -> Blueprint:
     def index():
         services = current_app.extensions["smart_display"]
         config = services["config"]
-        state = services["state_store"].to_dict()
+        state = _with_runtime_flags(services["state_store"].to_dict(), services)
         # Plan B14: render the hero clock on the server so the cold-reload
         # first frame is correct. JS overwrites these values on its first tick.
         clock_factory = services.get("clock_factory", format_initial_clock)
         initial_clock = clock_factory(config.app.timezone)
         now_local = datetime.now(ZoneInfo(config.app.timezone))
+        night_window = window_for_ui(config.app.night_from, config.app.night_to)
+        initial_night = is_night(now_local, config.app.night_from, config.app.night_to)
         initial_qlocktwo = qlocktwo_active_cells(now_local.hour, now_local.minute)
         initial_qlocktwo_ooe = qlocktwo_ooe_active_cells(
             now_local.hour, now_local.minute
@@ -78,8 +94,11 @@ def create_blueprint() -> Blueprint:
                 "image_duration_seconds": config.screensaver.image_duration_seconds,
                 "poll_interval_seconds": _poll_interval_seconds(config),
                 "watch_face": config.app.watch_face,
+                "night": night_window,
+                "allow_shutdown": bool(config.app.allow_shutdown),
             },
             initial_state=state,
+            initial_night=initial_night,
             initial_clock=initial_clock,
             qlocktwo_grid=QLOCKTWO_GRID,
             qlocktwo_active=initial_qlocktwo,
@@ -94,7 +113,59 @@ def create_blueprint() -> Blueprint:
     @blueprint.get("/api/state")
     def api_state():
         services = current_app.extensions["smart_display"]
-        return jsonify(services["state_store"].to_dict())
+        return jsonify(_with_runtime_flags(services["state_store"].to_dict(), services))
+
+    # ---- Timers (Ticket #3) ---------------------------------------------------
+
+    @blueprint.post("/api/timers")
+    @local_only
+    def timers_create():
+        services = current_app.extensions["smart_display"]
+        payload = request.get_json(silent=True) or {}
+        result = services["timer_service"].create(
+            payload.get("duration_seconds"), payload.get("label", "")
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
+
+    @blueprint.post("/api/timers/<timer_id>/cancel")
+    @local_only
+    def timers_cancel(timer_id: str):
+        services = current_app.extensions["smart_display"]
+        result = services["timer_service"].cancel(timer_id)
+        return jsonify(result), (200 if result.get("ok") else 404)
+
+    @blueprint.post("/api/timers/<timer_id>/dismiss")
+    @local_only
+    def timers_dismiss(timer_id: str):
+        services = current_app.extensions["smart_display"]
+        result = services["timer_service"].dismiss(timer_id)
+        return jsonify(result), (200 if result.get("ok") else 404)
+
+    @blueprint.post("/api/timers/<timer_id>/extend")
+    @local_only
+    def timers_extend(timer_id: str):
+        services = current_app.extensions["smart_display"]
+        payload = request.get_json(silent=True) or {}
+        result = services["timer_service"].extend(timer_id, payload.get("seconds"))
+        return jsonify(result), (200 if result.get("ok") else 400)
+
+    # ---- Power (Ticket #2) ----------------------------------------------------
+
+    @blueprint.post("/api/system/shutdown")
+    @local_only
+    def system_shutdown():
+        services = current_app.extensions["smart_display"]
+        services["state_store"].flush()
+        result = services["power_controller"].shutdown()
+        return jsonify(result), (200 if result.get("ok") else 403)
+
+    @blueprint.post("/api/system/reboot")
+    @local_only
+    def system_reboot():
+        services = current_app.extensions["smart_display"]
+        services["state_store"].flush()
+        result = services["power_controller"].reboot()
+        return jsonify(result), (200 if result.get("ok") else 403)
 
     @blueprint.get("/api/screensaver/next")
     def next_screensaver_image():

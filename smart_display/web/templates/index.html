@@ -6,7 +6,7 @@
     <title>{{ app_title }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   </head>
-  <body data-watch-face="{{ initial_watch_face }}">
+  <body data-watch-face="{{ initial_watch_face }}" data-night="{{ 'true' if initial_night else 'false' }}">
     <script>
       window.__SMART_DISPLAY__ = {{ {"config": ui_config, "state": initial_state}|tojson }};
     </script>
@@ -113,6 +113,14 @@
             </div>
           </button>
           <div class="hero-date" id="clock-date">{{ initial_clock.date }}</div>
+          <!-- Ticket #1: no RTC — until timesyncd has stepped the clock the time
+               on screen is fake-hwclock's guess. Say so instead of looking sure. -->
+          <div class="hero-hint{% if initial_state.system.time_synced %} is-hidden{% endif %}" id="clock-sync-hint">Uhr wird gestellt …</div>
+          <!-- Ticket #3: running-timer chip. Hidden unless a timer is live. -->
+          <button type="button" class="timer-chip is-hidden" id="timer-chip" aria-label="Timer anzeigen">
+            <span class="timer-chip__icon" id="timer-chip-icon" aria-hidden="true"></span>
+            <span class="timer-chip__text" id="timer-chip-text">00:00</span>
+          </button>
           <section class="hero-weather">
             <header class="hero-weather__header">
               <h2 class="hero-weather__title" id="weather-location">Wetter Zuhause</h2>
@@ -241,6 +249,76 @@
 
     </div>
 
+    <!-- Ticket #2/#3: quick sheet. Swipe up from anywhere or tap the grip. -->
+    <button type="button" class="sheet-handle" id="sheet-handle" aria-label="Schnellmenü öffnen"><span aria-hidden="true"></span></button>
+
+    <div class="sheet" id="quick-sheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Schnellmenü">
+      <div class="sheet__backdrop" id="quick-sheet-backdrop"></div>
+      <div class="sheet__panel" id="quick-sheet-panel">
+        <div class="sheet__grip" aria-hidden="true"></div>
+        <button type="button" class="sheet__close" id="quick-sheet-close" aria-label="Schließen"><span aria-hidden="true">×</span></button>
+        <div class="sheet__columns">
+          <section class="sheet__section sheet__section--timer" aria-labelledby="sheet-timer-title">
+            <h2 class="sheet__title" id="sheet-timer-title">Timer</h2>
+            <div class="sheet__chips" id="timer-presets">
+              <button type="button" class="chip" data-minutes="1">1 Min</button>
+              <button type="button" class="chip" data-minutes="5">5 Min</button>
+              <button type="button" class="chip" data-minutes="10">10 Min</button>
+              <button type="button" class="chip" data-minutes="15">15 Min</button>
+              <button type="button" class="chip" data-minutes="30">30 Min</button>
+              <button type="button" class="chip" data-minutes="60">1 Std</button>
+            </div>
+            <div class="timer-list" id="timer-list"></div>
+          </section>
+          <section class="sheet__section" aria-labelledby="sheet-clock-title">
+            <h2 class="sheet__title" id="sheet-clock-title">Uhr</h2>
+            <div class="sheet__chips" id="face-chips"></div>
+            <h2 class="sheet__title sheet__title--spaced" id="sheet-night-title">Nacht</h2>
+            <div class="sheet__chips" id="night-chips">
+              <button type="button" class="chip" data-night-mode="auto">Automatisch</button>
+              <button type="button" class="chip" data-night-mode="on">An</button>
+              <button type="button" class="chip" data-night-mode="off">Aus</button>
+            </div>
+            <div class="sheet__note" id="night-note"></div>
+          </section>
+          <section class="sheet__section sheet__section--power" aria-labelledby="sheet-power-title">
+            <h2 class="sheet__title" id="sheet-power-title">Gerät</h2>
+            <button type="button" class="hold-button" id="power-reboot">
+              <span class="hold-button__fill" aria-hidden="true"></span>
+              <span class="hold-button__label">Neu starten</span>
+              <span class="hold-button__hint">2 s halten</span>
+            </button>
+            <button type="button" class="hold-button hold-button--danger" id="power-shutdown">
+              <span class="hold-button__fill" aria-hidden="true"></span>
+              <span class="hold-button__label">Ausschalten</span>
+              <span class="hold-button__hint">2 s halten</span>
+            </button>
+            <div class="sheet__note" id="power-note"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ticket #3: visual alarm (the panel has no speaker). Sits above the
+         screensaver so it is seen whatever the panel was showing. -->
+    <div class="alarm" id="timer-alarm" aria-hidden="true" role="alertdialog" aria-label="Timer abgelaufen">
+      <div class="alarm__pulse" aria-hidden="true"></div>
+      <div class="alarm__body">
+        <div class="alarm__eyebrow">Timer</div>
+        <div class="alarm__title" id="timer-alarm-title">Timer abgelaufen</div>
+        <div class="alarm__label" id="timer-alarm-label"></div>
+        <div class="alarm__actions">
+          <button type="button" class="alarm__button alarm__button--primary" id="timer-alarm-stop">Stopp</button>
+          <button type="button" class="alarm__button" id="timer-alarm-extend">+1 Min</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ticket #2: the last thing the panel shows before the Pi halts. -->
+    <div class="power-overlay" id="power-overlay" aria-hidden="true">
+      <div class="power-overlay__text" id="power-overlay-text">Wird ausgeschaltet …</div>
+    </div>
+
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
     <div class="picker" id="spotify-picker" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Musik auf Gerät starten">
@@ -270,6 +348,17 @@
       <img class="screensaver__image screensaver__image--a is-active" id="screensaver-image-a" alt="">
       <img class="screensaver__image screensaver__image--b" id="screensaver-image-b" alt="">
       <div class="screensaver__overlay"></div>
+      <!-- Ticket #2: clock + date + weather over the photos (Nest-style), and
+           the dim centred clock in night mode. One text node per minute. -->
+      <div class="screensaver__info" id="screensaver-info">
+        <div class="screensaver__time" id="screensaver-time">{{ initial_clock.time }}</div>
+        <div class="screensaver__meta">
+          <span id="screensaver-date">{{ initial_clock.date }}</span>
+          <span class="screensaver__meta-sep" id="screensaver-weather-sep" aria-hidden="true">·</span>
+          <span id="screensaver-weather"></span>
+        </div>
+        <div class="screensaver__timer is-hidden" id="screensaver-timer"></div>
+      </div>
       <div class="screensaver__fallback" id="screensaver-fallback">
         <div class="screensaver__clock" id="screensaver-clock">
           <div class="flip-clock flip-clock--screensaver">

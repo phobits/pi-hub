@@ -25,6 +25,12 @@ class AppSection:
     log_level: str
     demo_mode: bool
     watch_face: str
+    # Ticket #2: night window as "HH:MM" wall-clock bounds; "" disables.
+    night_from: str = "22:30"
+    night_to: str = "06:00"
+    # Ticket #2: gate for POST /api/system/{shutdown,reboot}. Only the Pi's
+    # .env sets this — the local demo must never halt a dev machine.
+    allow_shutdown: bool = False
 
 
 @dataclass(slots=True)
@@ -167,6 +173,9 @@ def load_config_from_mapping(
             log_level=str(app_data.get("log_level", "INFO")).upper(),
             demo_mode=parse_bool(app_data.get("demo_mode", False)),
             watch_face=normalize_watch_face(app_data.get("watch_face")),
+            night_from=str(app_data.get("night_from", "22:30") or ""),
+            night_to=str(app_data.get("night_to", "06:00") or ""),
+            allow_shutdown=parse_bool(app_data.get("allow_shutdown", False)),
         ),
         weather=WeatherConfig(
             enabled=parse_bool(mapping.get("weather", {}).get("enabled", True)),
@@ -302,6 +311,9 @@ def _apply_env_overrides(config: dict[str, Any], env: dict[str, str]) -> None:
         "APP_LOG_LEVEL": ("app", "log_level"),
         "APP_DEMO_MODE": ("app", "demo_mode"),
         "APP_WATCH_FACE": ("app", "watch_face"),
+        "APP_NIGHT_FROM": ("app", "night_from"),
+        "APP_NIGHT_TO": ("app", "night_to"),
+        "APP_ALLOW_SHUTDOWN": ("app", "allow_shutdown"),
         "WEATHER_ENABLED": ("weather", "enabled"),
         "WEATHER_PROVIDER": ("weather", "provider"),
         "WEATHER_LABEL": ("weather", "label"),

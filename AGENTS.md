@@ -64,6 +64,25 @@ Wichtige aktuelle UI-Entscheidungen:
 - Die Hero-Uhr ist per Touch umschaltbar zwischen `flip` (Standard), `lcd`, `pulse`, `qlocktwo`, `qlocktwo-ooe` und `analog`. Start-Face kommt aus `app.watch_face` bzw. `APP_WATCH_FACE`, die Nutzerwahl persistiert im `localStorage` — kein Server-Roundtrip.
 - Die QLOCKTWO-Faces und die Analoguhr sind quadratisch und damit höhen-, nicht breitengebunden — eine breitere Spalte bringt ihnen nichts. Bei den Wortuhren entfällt deshalb die Wettervorschau komplett zugunsten eines größeren Rasters (355 px): Eine Wortuhr wird *gelesen*, nicht wie Zeiger überflogen, dort ist Größe direkt Lesbarkeit. Es bleibt der aktuelle Wert. Wer das Wetterfeld anfasst, muss den Rasterdeckel neu ausmessen.
 
+**Schnellmenü (Sheet von unten).** Wisch nach oben oder Tipp auf den Griff am
+unteren Rand öffnet ein Sheet mit Timer, Uhr-Stil, Nachtmodus und den beiden
+Power-Aktionen. Der Griff (44×4 px, Trefferfläche 120×26 px) ist **kein**
+Seitenindikator: Er zeigt eine Kante, die sich hochziehen lässt, und liegt in
+der Body-Padding-Zone, damit er auf beiden Screens nichts überdeckt. Power-Aktionen
+nur mit 2-s-Halten, nie per Tipp; ohne `APP_ALLOW_SHUTDOWN=true` sind sie
+deaktiviert und sagen warum.
+
+**Timer.** Ein laufender Timer ist ein Chip oben rechts im Hero und eine Zeile im
+Screensaver — beides tabellarische Ziffern, 1-Hz-Tick nur solange ein Timer
+lebt. Der Alarm ist Vollbild, pulsiert per Opacity (billig) und endet von selbst
+nach 10 Minuten; er hat Vorrang vor dem Screensaver. Ohne Lautsprecher bleibt er
+rein visuell — keinen Ton „vorbereiten“.
+
+**Nacht.** Im Nachtfenster ändern sich nur Farben und die Deko-Gradienten,
+nichts bewegt sich. Der Screensaver zeigt dann keine Fotos, sondern eine dunkle
+Uhr auf Schwarz. Das ist das Maximum, das Software auf diesem Panel kann — das
+Backlight hängt an der Display-Platine, nicht am Pi.
+
 Diese Entscheidungen nicht versehentlich zurückbauen.
 
 ## Failure-Mode-Denken

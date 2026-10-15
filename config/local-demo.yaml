@@ -6,7 +6,8 @@
     "timezone": "Europe/Vienna",
     "data_dir": "./data/local-demo",
     "log_level": "DEBUG",
-    "demo_mode": true
+    "demo_mode": true,
+    "allow_shutdown": false
   },
   "weather": {
     "enabled": false,

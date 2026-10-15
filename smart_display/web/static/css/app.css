@@ -2191,3 +2191,603 @@ body[data-watch-face="qlocktwo-ooe"] .hero-weather__forecast {
     transition-duration: 1ms;
   }
 }
+
+/* =============================================================================
+   Ticket #1 — clock not yet synchronised
+   ========================================================================== */
+.hero-hint {
+  margin-top: 6px;
+  text-align: center;
+  color: var(--warn);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.hero-hint.is-hidden {
+  display: none;
+}
+
+/* =============================================================================
+   Ticket #3 — running-timer chip on the home screen (top right of the hero)
+   ========================================================================== */
+.timer-chip {
+  appearance: none;
+  border: 1px solid rgba(245, 211, 140, 0.35);
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  background: rgba(245, 211, 140, 0.12);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.timer-chip.is-hidden {
+  display: none;
+}
+
+.timer-chip.is-ringing {
+  background: rgba(245, 211, 140, 0.3);
+}
+
+.timer-chip__icon {
+  width: 22px;
+  height: 22px;
+  color: var(--warn);
+  display: inline-flex;
+}
+
+.timer-chip__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* =============================================================================
+   Ticket #2/#3 — quick sheet (swipe up / tap the grip)
+   ========================================================================== */
+.sheet-handle {
+  appearance: none;
+  border: 0;
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 15;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sheet-handle span {
+  display: block;
+  width: 44px;
+  height: 4px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 26;
+  display: none;
+}
+
+.sheet.is-open {
+  display: block;
+}
+
+.sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 6, 8, 0.7);
+}
+
+.sheet__panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: min(440px, calc(100% - 40px));
+  padding: 14px 24px 22px;
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  transform: translateY(100%);
+  transition: transform 220ms ease;
+  overflow: hidden;
+}
+
+.sheet.is-open .sheet__panel {
+  transform: translateY(0);
+}
+
+.sheet.is-instant .sheet__panel {
+  transition: none;
+}
+
+.sheet__grip {
+  width: 44px;
+  height: 4px;
+  margin: 0 auto 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.sheet__close {
+  appearance: none;
+  border: 0;
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sheet__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 22px;
+  height: calc(100% - 16px);
+  min-height: 0;
+}
+
+.sheet__section {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet__title {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sheet__title--spaced {
+  margin-top: 18px;
+}
+
+.sheet__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chip {
+  appearance: none;
+  border: 1px solid var(--line);
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.chip:active {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.chip.is-selected {
+  background: rgba(216, 231, 255, 0.18);
+  border-color: rgba(216, 231, 255, 0.45);
+  font-weight: 600;
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.sheet__note {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.timer-list {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.timer-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 6px 6px 6px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.timer-row.is-ringing {
+  background: rgba(245, 211, 140, 0.2);
+}
+
+.timer-row__remaining {
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.timer-row__label {
+  color: var(--muted);
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timer-row__cancel {
+  appearance: none;
+  border: 0;
+  min-width: 48px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.timer-list__empty {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.hold-button {
+  appearance: none;
+  border: 1px solid var(--line);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  margin-bottom: 10px;
+  padding: 0 18px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hold-button--danger {
+  border-color: rgba(242, 167, 167, 0.35);
+}
+
+.hold-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.hold-button__fill {
+  position: absolute;
+  inset: 0;
+  background: rgba(216, 231, 255, 0.22);
+  transform: scaleX(0);
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+.hold-button--danger .hold-button__fill {
+  background: rgba(242, 167, 167, 0.3);
+}
+
+/* 2 s to fill = the confirmation. Releasing early snaps back instantly. */
+.hold-button.is-holding .hold-button__fill {
+  transform: scaleX(1);
+  transition: transform 2s linear;
+}
+
+.hold-button__label,
+.hold-button__hint {
+  position: relative;
+}
+
+.hold-button__hint {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* =============================================================================
+   Ticket #3 — full-screen visual alarm
+   ========================================================================== */
+.alarm {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: #0b0d10;
+}
+
+.alarm.is-active {
+  display: flex;
+}
+
+.alarm__pulse {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(245, 211, 140, 0.35), transparent 70%);
+  animation: alarm-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes alarm-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alarm__pulse { animation: none; opacity: 0.7; }
+}
+
+.alarm__body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.alarm__eyebrow {
+  color: var(--warn);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.alarm__title {
+  font-size: 64px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+
+.alarm__label {
+  color: var(--muted);
+  font-size: 24px;
+  min-height: 30px;
+}
+
+.alarm__actions {
+  display: flex;
+  gap: 18px;
+  margin-top: 22px;
+}
+
+.alarm__button {
+  appearance: none;
+  border: 1px solid var(--line);
+  min-width: 180px;
+  min-height: 76px;
+  padding: 0 32px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 26px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.alarm__button--primary {
+  background: var(--warn);
+  border-color: transparent;
+  color: #1a1407;
+}
+
+/* =============================================================================
+   Ticket #2 — power overlay
+   ========================================================================== */
+.power-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: #050608;
+}
+
+.power-overlay.is-active {
+  display: flex;
+}
+
+.power-overlay__text {
+  color: var(--muted);
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+/* =============================================================================
+   Ticket #2 — screensaver info overlay + modes
+   .screensaver--photo    photos + info bottom-left
+   .screensaver--fallback no photos: big flip clock (unchanged), info hidden
+   .screensaver--night    no photos: dim centred clock on black
+   ========================================================================== */
+.screensaver__info {
+  position: absolute;
+  left: 40px;
+  bottom: 34px;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.screensaver--photo .screensaver__info {
+  display: flex;
+}
+
+.screensaver__time {
+  font-size: 96px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.screensaver__meta {
+  display: flex;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.screensaver__meta-sep.is-hidden,
+.screensaver__timer.is-hidden {
+  display: none;
+}
+
+.screensaver__timer {
+  margin-top: 6px;
+  color: var(--warn);
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.screensaver--night {
+  background: #000;
+  align-items: center;
+  justify-content: center;
+}
+
+.screensaver--night .screensaver__image,
+.screensaver--night .screensaver__overlay,
+.screensaver--night .screensaver__fallback {
+  display: none;
+}
+
+.screensaver--night .screensaver__info {
+  position: static;
+  display: flex;
+  align-items: center;
+  text-align: center;
+  text-shadow: none;
+  color: rgba(170, 178, 187, 0.55);
+}
+
+.screensaver--night .screensaver__time {
+  font-size: 180px;
+  font-weight: 600;
+}
+
+.screensaver--night .screensaver__meta {
+  font-size: 24px;
+  opacity: 0.7;
+}
+
+.screensaver--fallback .screensaver__fallback {
+  display: flex;
+}
+
+/* =============================================================================
+   Ticket #2 — night palette. Only colours and the decorative gradients change,
+   nothing moves. Everything stays readable, just a lot less bright.
+   ========================================================================== */
+body[data-night="true"] {
+  --text: #aab2bb;
+  --muted: #66707b;
+  --accent: #9fb0c7;
+  --accent-strong: #c9d1da;
+  --panel: rgba(10, 12, 15, 0.98);
+  --panel-strong: rgba(12, 14, 18, 0.98);
+  --line: rgba(255, 255, 255, 0.05);
+  --shadow: none;
+  --warn: #b89d68;
+  background: #050607;
+}
+
+body[data-night="true"] .hero-panel::before {
+  display: none;
+}
+
+body[data-night="true"] .flip-digit {
+  filter: none;
+}
+
+body[data-night="true"] .flip-digit__half,
+body[data-night="true"] .flip-digit__flap {
+  background: #0e1115;
+}
+
+body[data-night="true"] .lcd-seg.is-on,
+body[data-night="true"] .lcd-colon circle {
+  fill: #a7772f;
+  filter: none;
+}
+
+body[data-night="true"] .spotify-tile__art {
+  opacity: 0.6;
+}
+
+/* 1024×600 kiosk: the sheet keeps room for the hero above it. */
+@media (max-width: 1100px) and (max-height: 700px) {
+  .sheet__panel {
+    height: 400px;
+    padding: 12px 20px 18px;
+  }
+
+  .timer-chip {
+    top: 14px;
+    right: 16px;
+  }
+
+  .screensaver__info {
+    left: 32px;
+    bottom: 28px;
+  }
+}
