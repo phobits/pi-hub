@@ -1961,6 +1961,10 @@ body[data-night="true"] .picker__sheet {
   -webkit-user-select: none;
 }
 
+.sheet__chips + .hold-button {
+  margin-top: 14px;
+}
+
 .hold-button--danger {
   border-color: var(--danger-line);
 }

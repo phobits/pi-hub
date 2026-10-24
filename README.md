@@ -23,7 +23,8 @@ Swipe left anywhere on the home screen to open the full Spotify controller — b
 
 Swipe **up** anywhere (or tap the grip at the bottom edge) to open the quick
 sheet. It holds the countdown timers (presets from 1 min to 1 h, up to three at
-once), the watch-face picker, the night-mode switch and the two power actions.
+once), the watch-face picker, the night-mode switch, a button that starts the
+screensaver right away, and the two power actions.
 
 - **Timer** — a running timer shows as a chip in the status rail above the
   agenda and as a line on the screensaver. When it ends the panel turns into a full-screen
@@ -34,6 +35,9 @@ once), the watch-face picker, the night-mode switch and the two power actions.
   the UI switches to a dimmed palette and the screensaver drops the photos for a
   dark clock on black. *Automatisch / An / Aus* in the sheet overrides the
   window; the choice persists in `localStorage`.
+- **Bildschirmschoner** — a plain tap starts the screensaver immediately instead
+  of waiting for the idle timeout; a tap on the panel wakes it as usual. A
+  ringing timer still wins.
 - **Ausschalten / Neu starten** — hold the button for two seconds. Only active
   with `APP_ALLOW_SHUTDOWN=true` in the Pi's `.env` plus the sudoers rule that
   `install-pi.sh` installs; the demo server cannot shut down a dev machine. The

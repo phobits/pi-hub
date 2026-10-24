@@ -11,6 +11,15 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-24
+
+### Hinzugefügt
+
+- Schnellmenü: In der Spalte „Gerät“ startet der Chip „Bildschirmschoner“ den
+  Screensaver sofort, ohne auf die Leerlaufzeit zu warten. Ein Tipp aufs Panel
+  weckt ihn wie gewohnt, ein klingelnder Timer hat weiter Vorrang
+  ([#12](https://github.com/phobits/pi-hub/issues/12)).
+
 ## [0.9.2] - 2026-10-24
 
 ### Behoben
@@ -423,7 +432,8 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/phobits/pi-hub/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/phobits/pi-hub/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/phobits/pi-hub/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/phobits/pi-hub/compare/v0.8.0...v0.9.0

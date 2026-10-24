@@ -69,8 +69,9 @@ Wichtige aktuelle UI-Entscheidungen:
 - Display-Größen (Flip-Ziffern, Puls, Temperatur, Spotify-Titel, Screensaver-Uhr) stehen in `"Inter Display", "Inter"`. Hat das Gerät kein Inter Display (fonts-inter < 4.0), fällt es auf Inter zurück — gleiche Metrik, etwas breitere Glyphen, kein Bruch.
 
 **Schnellmenü (Sheet von unten).** Wisch nach oben oder Tipp auf den Griff am
-unteren Rand öffnet ein Sheet mit Timer, Uhr-Stil, Nachtmodus und den beiden
-Power-Aktionen. Der Griff (44×4 px, Trefferfläche 120×26 px) ist **kein**
+unteren Rand öffnet ein Sheet mit Timer, Uhr-Stil, Nachtmodus, einem Chip, der
+den Screensaver sofort startet (normaler Tipp, kein Halten — harmlos und per
+Tipp aufs Panel rückgängig), und den beiden Power-Aktionen. Der Griff (44×4 px, Trefferfläche 120×26 px) ist **kein**
 Seitenindikator: Er zeigt eine Kante, die sich hochziehen lässt, und liegt in
 der Body-Padding-Zone, damit er auf beiden Screens nichts überdeckt. Power-Aktionen
 nur mit 2-s-Halten, nie per Tipp; ohne `APP_ALLOW_SHUTDOWN=true` sind sie

@@ -782,6 +782,7 @@
     faceChips: document.getElementById("face-chips"),
     nightChips: document.getElementById("night-chips"),
     nightNote: document.getElementById("night-note"),
+    screensaverStart: document.getElementById("screensaver-start"),
     powerReboot: document.getElementById("power-reboot"),
     powerShutdown: document.getElementById("power-shutdown"),
     powerNote: document.getElementById("power-note"),
@@ -3354,6 +3355,10 @@
     nodes.nightChips.querySelectorAll("[data-night-mode]").forEach((chip) => {
       chip.addEventListener("click", () => setNightModeSetting(chip.dataset.nightMode));
     });
+
+    // Fires on click, i.e. after the pointerdown that handleActivity sees, so
+    // the tap that starts the screensaver cannot also wake it again.
+    nodes.screensaverStart.addEventListener("click", enterScreensaver);
 
     bindHoldButton(nodes.powerReboot, () => requestPower("reboot"));
     bindHoldButton(nodes.powerShutdown, () => requestPower("shutdown"));
