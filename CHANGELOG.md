@@ -11,6 +11,32 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-24
+
+### Behoben
+
+- Lokale Screensaver-Fotos werden wie die Lightroom-Bilder auf 1024×600
+  normalisiert (Kopie unter `data/screensaver/local/`, das Original bleibt
+  unangetastet) — ein Handyfoto in voller Auflösung kostete WPE sonst rund
+  96 MB pro Überblend-Slot. Dateinamen mit `#` oder `%` funktionieren, macOS-
+  `._*`-Dateien und andere Dotfiles zählen nicht mehr als Fotos, `foto.jpg` und
+  `foto.png` bekommen getrennte IDs, und eine unter gleichem Namen ersetzte
+  Datei wird erkannt. Die Rotation ist threadsicher. Decodiert wird im
+  Provider-Thread mit Zeitbudget, ein Request decodiert höchstens ein neues
+  Foto; fertige Kopien überleben Neustarts, werden atomar geschrieben und
+  bleiben nach dem Ersetzen fünf Minuten abrufbar. Nicht-JPEGs über 12 Mpx
+  werden übersprungen, ein neu hinzukommendes Foto mischt die laufende Runde
+  nicht neu. (#5)
+- Screensaver-Status: Ein leeres Lightroom-Album mit lokalen Fotos meldet `ok`
+  statt `empty`; Demo-Bilder machen aus einem Abruffehler einer frischen
+  Installation kein `stale` mehr. (#5)
+- zram auf Raspberry Pi OS 13 (Trixie): `install-pi.sh` konfiguriert das
+  mitgelieferte `rpi-swap` auf 128 MB reines zram ohne Swap-Datei auf der
+  SD-Karte, statt `zram-tools` daneben zu installieren, das an jedem Boot
+  scheiterte. (#6)
+- CHANGELOG-Vergleichslinks ab 0.6.0 ergänzt, fehlender Tag `v0.8.0`
+  nachgetragen. (#7)
+
 ## [0.9.0] - 2026-10-24
 
 ### Geändert — Homescreen v2 „Glance“
@@ -383,8 +409,12 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.9.0...HEAD
-[0.9.0]: https://github.com/phobits/pi-hub/releases/tag/v0.9.0
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/phobits/pi-hub/compare/v0.9.0...v0.9.1
+[0.9.0]: https://github.com/phobits/pi-hub/compare/v0.8.0...v0.9.0
+[0.8.0]: https://github.com/phobits/pi-hub/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/phobits/pi-hub/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/phobits/pi-hub/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/phobits/pi-hub/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/phobits/pi-hub/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/phobits/pi-hub/compare/v0.4.0...v0.4.1

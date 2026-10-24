@@ -502,12 +502,13 @@ class LocalEntriesTest(unittest.TestCase):
         self.local_dir.mkdir()
         (self.local_dir / "family.jpg").write_bytes(SAMPLE_PNG)
 
-    def _make_cache(self) -> ImageCache:
+    def _make_cache(self, clock=None) -> ImageCache:
         return ImageCache(
             cache_dir=self.tmp / "screensaver",
             manifest_path=self.tmp / "screensaver" / "manifest.json",
             local_dir=self.local_dir,
             downloader=lambda url, timeout: (SAMPLE_PNG, {}),
+            clock=clock,
         )
 
     def test_local_photos_join_remote_rotation(self) -> None:
@@ -538,13 +539,337 @@ class LocalEntriesTest(unittest.TestCase):
 
     def test_local_lookup_rejects_unknown_and_nested_paths(self) -> None:
         cache = self._make_cache()
+        (entry,) = cache.local_entries()
+        served_name = Path(entry.local_path).name
+
+        self.assertEqual(entry.public_path, f"/media/screensaver-local/{served_name}")
+        self.assertEqual(cache.local_entry_for_filename(served_name), entry)
+        self.assertIsNone(cache.local_entry_for_filename("family.jpg"))
+        self.assertIsNone(cache.local_entry_for_filename(f"../{served_name}"))
+        self.assertIsNone(cache.local_entry_for_filename("missing.jpg"))
+
+    def test_local_photo_is_fit_to_display_size(self) -> None:
+        # #5.1: a phone photo used to reach WPE at full resolution.
+        (self.local_dir / "family.jpg").write_bytes(_synthetic_jpeg(1600, 1200))
+        cache = self._make_cache()
+
+        (entry,) = cache.local_entries()
+
+        from PIL import Image as _Image  # type: ignore
+
+        with _Image.open(entry.local_path) as served:
+            self.assertEqual(served.size, (1024, 600))
+        self.assertEqual((entry.width, entry.height), (1024, 600))
+        self.assertTrue(Path(entry.local_path).is_relative_to(cache.local_cache_dir.resolve()))
+        # The user's original is never touched.
+        with _Image.open(self.local_dir / "family.jpg") as original:
+            self.assertEqual(original.size, (1600, 1200))
+
+    def test_awkward_filenames_get_safe_urls_and_distinct_ids(self) -> None:
+        # #5.2 + #5.7: "#"/"%" broke the URL, and a shared stem shared the id.
+        (self.local_dir / "Urlaub #2 100%.jpg").write_bytes(SAMPLE_PNG)
+        (self.local_dir / "family.png").write_bytes(SAMPLE_PNG)
+        cache = self._make_cache()
+
+        entries = cache.prepare_local_photos()
+
+        self.assertEqual(len(entries), 3)
+        self.assertEqual(len({entry.id for entry in entries}), 3)
+        for entry in entries:
+            self.assertRegex(
+                entry.public_path, r"^/media/screensaver-local/[0-9a-f]{16}\.jpg$"
+            )
+
+    def test_dotfiles_are_not_photos(self) -> None:
+        # #5.6: macOS AppleDouble companions carry the suffix, not an image.
+        (self.local_dir / "._family.jpg").write_bytes(b"\x00\x05\x16\x07 resource fork")
+        (self.local_dir / ".hidden.jpg").write_bytes(SAMPLE_PNG)
+        demo_dir = self.tmp / "demo"
+        demo_dir.mkdir()
+        (demo_dir / "demo.jpg").write_bytes(SAMPLE_PNG)
+        (demo_dir / "._demo.jpg").write_bytes(b"resource fork")
+        cache = ImageCache(
+            cache_dir=self.tmp / "screensaver",
+            manifest_path=self.tmp / "screensaver" / "manifest.json",
+            local_dir=self.local_dir,
+            demo_dir=demo_dir,
+            downloader=lambda url, timeout: (SAMPLE_PNG, {}),
+        )
 
         self.assertEqual(
-            cache.local_entry_for_filename("family.jpg").public_path,
-            "/media/screensaver-local/family.jpg",
+            [entry.source_url for entry in cache.local_entries()], ["local:family.jpg"]
         )
-        self.assertIsNone(cache.local_entry_for_filename("../family.jpg"))
-        self.assertIsNone(cache.local_entry_for_filename("missing.jpg"))
+        self.assertEqual([entry.id for entry in cache.demo_entries()], ["demo"])
+
+    def test_replaced_photo_gets_new_hash_and_old_copy_retires(self) -> None:
+        # #5.7: same name, new content — the directory mtime need not change,
+        # so the swap is found by the periodic re-stat.
+        import os as _os
+
+        from smart_display.cache.image_cache import (
+            LOCAL_RESCAN_SECONDS,
+            LOCAL_RETIRE_GRACE_SECONDS,
+        )
+
+        now = [1000.0]
+        cache = self._make_cache(clock=lambda: now[0])
+        (before,) = cache.local_entries()
+        photo = self.local_dir / "family.jpg"
+        photo.write_bytes(_synthetic_jpeg(64, 48))
+        stat = photo.stat()
+        _os.utime(photo, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+        dir_stat = self.local_dir.stat()
+        _os.utime(self.local_dir, ns=(dir_stat.st_atime_ns, dir_stat.st_mtime_ns))
+
+        self.assertEqual(cache.local_entries(), [before], "no re-stat inside the window")
+
+        now[0] += LOCAL_RESCAN_SECONDS + 1
+        (after,) = cache.local_entries()
+
+        self.assertNotEqual(after.content_hash, before.content_hash)
+        self.assertNotEqual(after.local_path, before.local_path)
+        self.assertEqual(after.id, before.id)
+        # #5 review: the kiosk may have just been handed the old URL.
+        self.assertTrue(Path(before.local_path).exists())
+        served_before = Path(before.local_path).name
+        self.assertEqual(cache.local_entry_for_filename(served_before), before)
+
+        now[0] += LOCAL_RETIRE_GRACE_SECONDS + 1
+        cache.local_entries()
+
+        self.assertFalse(Path(before.local_path).exists())
+        self.assertIsNone(cache.local_entry_for_filename(served_before))
+
+    def test_removed_photo_leaves_rotation_at_once_and_disk_after_grace(self) -> None:
+        from smart_display.cache.image_cache import LOCAL_RETIRE_GRACE_SECONDS
+
+        now = [1000.0]
+        cache = self._make_cache(clock=lambda: now[0])
+        (entry,) = cache.local_entries()
+        (self.local_dir / "family.jpg").unlink()
+
+        self.assertEqual(cache.local_entries(), [])
+        self.assertTrue(Path(entry.local_path).exists())
+
+        now[0] += LOCAL_RETIRE_GRACE_SECONDS + 1
+        cache.local_entries()
+        self.assertFalse(Path(entry.local_path).exists())
+
+    def test_request_path_decodes_at_most_one_new_photo(self) -> None:
+        # #5 review: forty new photos must not stall one slideshow request.
+        for index in range(4):
+            (self.local_dir / f"photo-{index}.jpg").write_bytes(SAMPLE_PNG)
+        cache = self._make_cache()
+        decodes = {"count": 0}
+        original = cache._write_fitted
+
+        def counting(source, target):
+            decodes["count"] += 1
+            return original(source, target)
+
+        cache._write_fitted = counting
+
+        self.assertEqual(len(cache.local_entries()), 1)
+        self.assertEqual(decodes["count"], 1)
+        self.assertEqual(len(cache.prepare_local_photos()), 5)
+        self.assertEqual(decodes["count"], 5)
+
+    def test_restart_reuses_prepared_copies_without_decoding(self) -> None:
+        # #5 review: every deploy restarts the backend.
+        first = self._make_cache()
+        (prepared,) = first.prepare_local_photos()
+        restarted = self._make_cache()
+        restarted._write_fitted = lambda source, target: self.fail("decoded again")
+
+        (reused,) = restarted.local_entries()
+
+        self.assertEqual(reused, prepared)
+        self.assertTrue(Path(reused.local_path).exists())
+
+    def test_media_lookup_after_restart_finds_copy_on_disk(self) -> None:
+        # #5 review: the kiosk may hold a URL from before the restart.
+        (prepared,) = self._make_cache().prepare_local_photos()
+        restarted = self._make_cache()
+        restarted._write_fitted = lambda source, target: self.fail("decoded on media route")
+
+        found = restarted.local_entry_for_filename(Path(prepared.local_path).name)
+
+        self.assertEqual(found, prepared)
+
+    def test_interrupted_write_is_never_reused(self) -> None:
+        # #5 review: power cut while the copy was being written.
+        cache = self._make_cache()
+
+        def interrupted(source, target):
+            target.with_name(f"{target.name}.partial").write_bytes(b"truncated")
+            raise OSError("power cut")
+
+        cache._write_fitted = interrupted
+        self.assertEqual(cache.local_entries(), [])
+        restarted = self._make_cache()
+
+        (entry,) = restarted.prepare_local_photos()
+
+        from PIL import Image as _Image  # type: ignore
+
+        with _Image.open(entry.local_path) as served:
+            self.assertEqual(served.size, (1024, 600))
+        self.assertEqual(list(restarted.local_cache_dir.glob("*.partial")), [])
+
+    def test_provider_tick_retries_a_failed_photo(self) -> None:
+        cache = self._make_cache()
+        original = cache._write_fitted
+
+        def exhausted(source, target):
+            raise MemoryError()
+
+        cache._write_fitted = exhausted
+        self.assertEqual(cache.local_entries(), [])
+        cache._write_fitted = original
+
+        self.assertEqual(len(cache.local_entries()), 0, "requests do not retry")
+        self.assertEqual(len(cache.prepare_local_photos()), 1)
+
+    def test_photo_added_mid_round_does_not_repeat_shown_ones(self) -> None:
+        # #5 review: a growing pool used to re-shuffle the whole round.
+        for name in ("a.jpg", "b.jpg"):
+            (self.local_dir / name).write_bytes(SAMPLE_PNG)
+        cache = self._make_cache()
+        cache.prepare_local_photos()  # family, a, b
+        shown = [cache.next_entry().source_url for _ in range(2)]
+        (self.local_dir / "late.jpg").write_bytes(SAMPLE_PNG)
+        cache.prepare_local_photos()
+
+        rest = [cache.next_entry().source_url for _ in range(2)]
+
+        self.assertEqual(set(shown) & set(rest), set())
+        self.assertEqual(len(set(shown + rest)), 4)
+
+    def test_provider_tick_decode_budget_still_progresses(self) -> None:
+        # #5 review: a large backlog must not hold up one provider tick.
+        import smart_display.cache.image_cache as _module
+
+        for index in range(3):
+            (self.local_dir / f"photo-{index}.jpg").write_bytes(SAMPLE_PNG)
+        cache = self._make_cache()
+        original = _module.LOCAL_PREPARE_TICK_SECONDS
+        _module.LOCAL_PREPARE_TICK_SECONDS = 0.0
+        try:
+            self.assertEqual(len(cache.prepare_local_photos()), 1)
+            self.assertEqual(len(cache.prepare_local_photos()), 2)
+        finally:
+            _module.LOCAL_PREPARE_TICK_SECONDS = original
+
+    def test_oversized_non_jpeg_is_skipped(self) -> None:
+        # #5 review: PNG/WebP have no reduced-scale decode.
+        from PIL import Image as _Image  # type: ignore
+
+        from smart_display.cache.image_cache import NON_JPEG_MAX_PIXELS
+
+        _Image.new("RGB", (4000, NON_JPEG_MAX_PIXELS // 4000 + 1)).save(
+            self.local_dir / "screenshot.png"
+        )
+        cache = self._make_cache()
+
+        self.assertEqual(
+            [entry.source_url for entry in cache.prepare_local_photos()],
+            ["local:family.jpg"],
+        )
+
+    def test_retired_copies_are_swept_once_not_per_request(self) -> None:
+        # #5 review: no directory sweep on every request during the grace.
+        from smart_display.cache.image_cache import LOCAL_RETIRE_GRACE_SECONDS
+
+        now = [1000.0]
+        cache = self._make_cache(clock=lambda: now[0])
+        cache.local_entries()
+        (self.local_dir / "family.jpg").unlink()
+        cache.local_entries()
+        sweeps = {"count": 0}
+        original = cache._sweep_local_cache
+
+        def counting() -> None:
+            sweeps["count"] += 1
+            original()
+
+        cache._sweep_local_cache = counting
+        for _ in range(5):
+            cache.local_entries()
+        self.assertEqual(sweeps["count"], 0)
+
+        now[0] += LOCAL_RETIRE_GRACE_SECONDS + 1
+        cache.local_entries()
+        cache.local_entries()
+        self.assertEqual(sweeps["count"], 1)
+
+    def test_undecodable_local_file_is_skipped(self) -> None:
+        (self.local_dir / "broken.jpg").write_bytes(b"not an image")
+        cache = self._make_cache()
+
+        self.assertEqual(
+            [entry.source_url for entry in cache.prepare_local_photos()],
+            ["local:family.jpg"],
+        )
+        # Remembered, so the next slideshow tick does not decode it again.
+        self.assertEqual(len(cache._local_failed), 1)
+
+    def test_out_of_memory_decode_skips_the_photo(self) -> None:
+        # #5 review: MemoryError used to escape as a 500 on every tick.
+        cache = self._make_cache()
+
+        def exhausted(source, target):
+            raise MemoryError()
+
+        cache._write_fitted = exhausted
+
+        self.assertEqual(cache.local_entries(), [])
+        self.assertEqual(len(cache._local_failed), 1)
+        self.assertIsNone(cache.next_entry())
+
+    def test_unremovable_stale_copy_does_not_break_rotation(self) -> None:
+        # #5 review: a root-owned leftover in the copy dir raised out of the scan.
+        cache = self._make_cache()
+        cache.local_cache_dir.mkdir(parents=True, exist_ok=True)
+        (cache.local_cache_dir / "leftover.jpg").write_bytes(SAMPLE_PNG)
+        original_unlink = Path.unlink
+
+        def refusing_unlink(self_path, missing_ok=False):
+            raise PermissionError("owned by root")
+
+        Path.unlink = refusing_unlink  # type: ignore[assignment]
+        try:
+            entry = cache.next_entry()
+        finally:
+            Path.unlink = original_unlink  # type: ignore[assignment]
+
+        self.assertEqual(entry.source_url, "local:family.jpg")
+
+    def test_concurrent_next_entry_never_fails(self) -> None:
+        # #5.5: Waitress serves /api/screensaver/next on several threads.
+        import threading as _threading
+
+        for index in range(5):
+            (self.local_dir / f"photo-{index}.jpg").write_bytes(SAMPLE_PNG)
+        cache = self._make_cache()
+        cache.prepare_local_photos()
+        errors: list[BaseException] = []
+        picks: list[str] = []
+
+        def worker() -> None:
+            try:
+                for _ in range(60):
+                    picks.append(cache.next_entry().source_url)
+            except BaseException as exc:  # noqa: BLE001 — the test reports it
+                errors.append(exc)
+
+        threads = [_threading.Thread(target=worker) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len(picks), 480)
 
     def test_remote_cache_is_excluded_when_remote_source_is_disabled(self) -> None:
         cache = ImageCache(
@@ -571,6 +896,7 @@ class LocalEntriesTest(unittest.TestCase):
         (self.local_dir / "second.jpg").write_bytes(SAMPLE_PNG)
         (self.local_dir / "third.jpg").write_bytes(SAMPLE_PNG)
         cache = self._make_cache()
+        cache.prepare_local_photos()
 
         selections = [cache.next_entry().source_url for _ in range(6)]
 
@@ -589,6 +915,68 @@ class LocalEntriesTest(unittest.TestCase):
         self.assertEqual(health["status"], "ok")
         self.assertEqual(health["source"], "local")
         self.assertEqual(store.get_state().system.screensaver_photo_count, 1)
+
+    def _album_provider(self, cache: ImageCache, *, album_status: int = 200):
+        base = make_app_config(self.tmp)
+        config = replace(
+            base,
+            screensaver=replace(base.screensaver, source_url="https://album.example"),
+        )
+        store = make_state_store(self.tmp)
+        http = FakeHttpClient()
+        http.add_response("GET", "https://album.example", status=album_status, body="")
+        provider = LightroomSourceProvider(config, store, cache, http_client=http)
+        provider._image_urls_from_album_page = lambda html, url: [
+            "https://example.com/a.jpg"
+        ]
+        return provider, store
+
+    def test_empty_album_with_local_photos_is_ok(self) -> None:
+        # #5.3: same situation as the local-only branch, same verdict.
+        def failing_download(url: str, timeout: int):
+            raise RuntimeError("download failed")
+
+        cache = ImageCache(
+            cache_dir=self.tmp / "screensaver",
+            manifest_path=self.tmp / "screensaver" / "manifest.json",
+            local_dir=self.local_dir,
+            downloader=failing_download,
+        )
+        provider, store = self._album_provider(cache)
+
+        provider.refresh()
+
+        health = store.health_payload()["providers"]["screensaver"]
+        self.assertEqual(health["status"], "ok")
+
+    def test_demo_images_do_not_hide_a_fetch_error(self) -> None:
+        # #5.4: fresh install, wrong URL, only the bundled demo set.
+        demo_dir = self.tmp / "demo"
+        demo_dir.mkdir()
+        (demo_dir / "demo.jpg").write_bytes(SAMPLE_PNG)
+        cache = ImageCache(
+            cache_dir=self.tmp / "screensaver",
+            manifest_path=self.tmp / "screensaver" / "manifest.json",
+            demo_dir=demo_dir,
+            downloader=lambda url, timeout: (SAMPLE_PNG, {}),
+        )
+        provider, store = self._album_provider(cache, album_status=404)
+
+        provider.refresh()
+
+        health = store.health_payload()["providers"]["screensaver"]
+        self.assertEqual(health["status"], "error")
+        # The demo set still shows, so it still counts for the slideshow.
+        self.assertEqual(store.get_state().system.screensaver_photo_count, 1)
+
+    def test_fetch_error_with_local_photos_is_stale(self) -> None:
+        cache = self._make_cache()
+        provider, store = self._album_provider(cache, album_status=404)
+
+        provider.refresh()
+
+        health = store.health_payload()["providers"]["screensaver"]
+        self.assertEqual(health["status"], "stale")
 
 
 class FailuresWriteOnChangeTest(unittest.TestCase):

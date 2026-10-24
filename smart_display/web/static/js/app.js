@@ -2470,9 +2470,10 @@
   // Plan C1: crossfade state. ``activeSlot`` is the <img> currently visible;
   // the next fetch writes into the hidden slot, waits for its ``load`` event,
   // then toggles the ``is-active`` class to trigger the CSS opacity swap.
-  // We intentionally do NOT preload "the next next image" because
-  // /api/screensaver/next returns a *random* manifest entry on every call,
-  // so a speculative pre-fetch rarely matches what the next advance picks.
+  // We intentionally do NOT preload "the next next image": every call to
+  // /api/screensaver/next pops the server's shuffled round (each photo once,
+  // no immediate repeat), so a speculative fetch would consume an entry, and
+  // a third decoded 1024x600 bitmap costs WPE memory on the 512 MB Pi.
   let activeScreensaverSlot = null;
 
   async function fetchNextScreensaverImage() {

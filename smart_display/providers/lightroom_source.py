@@ -113,8 +113,11 @@ class LightroomSourceProvider(BaseProvider):
             self.state_store.set_screensaver_photo_count(available_photo_count())
             return
 
+        # Decode new local photos here, on the scheduler thread, so a request
+        # thread never has to work through a backlog (#5).
+        local_photo_count = len(self.image_cache.prepare_local_photos())
+
         if not self.config.screensaver.source_url:
-            local_photo_count = len(self.image_cache.local_entries())
             self.state_store.set_provider_snapshot(
                 self.section_name,
                 self.snapshot(status="ok", source="local")
@@ -141,12 +144,18 @@ class LightroomSourceProvider(BaseProvider):
                 timeout_seconds=self.config.screensaver.timeout_seconds,
                 max_new_downloads=max(self.config.screensaver.images_per_tick, 1),
             )
-            status = "ok" if entries else "empty"
+            # Local photos rotate alongside the album, so an empty album with
+            # local photos is as healthy as the local-only branch above.
+            status = "ok" if entries or local_photo_count else "empty"
             self.state_store.set_provider_snapshot(self.section_name, self.snapshot(status=status))
             self.state_store.set_screensaver_photo_count(available_photo_count())
         except (HttpError, RuntimeError) as exc:
             self.logger.warning("screensaver refresh failed: %s", exc)
-            fallback_status = "stale" if available_photo_count() > 0 else "error"
+            # Bundled demo images are a placeholder, not data this provider
+            # ever fetched, so they must not turn a fresh install's error into
+            # "stale".
+            real_photo_count = self.image_cache.available_count(include_demo=False)
+            fallback_status = "stale" if real_photo_count > 0 else "error"
             self.state_store.set_provider_snapshot(
                 self.section_name,
                 self.snapshot(status=fallback_status, error_message=str(exc)),

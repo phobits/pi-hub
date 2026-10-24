@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import io
 import logging
+import os
 import random
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 from smart_display.cache.disk_cache import DiskCache
 from smart_display.http_client import HttpClient, HttpError
@@ -40,9 +43,55 @@ _INITIAL_BACKOFF_SECONDS = 60.0
 _MAX_BACKOFF_SECONDS = 24 * 60 * 60.0
 
 
+LOCAL_IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp"})
+DEMO_IMAGE_SUFFIXES = LOCAL_IMAGE_SUFFIXES | {".svg"}
+
+# A request thread decodes at most this many new local photos per call; the
+# provider thread prepares the rest. One full-size decode is seconds on the
+# Pi Zero — forty in a row would stall the slideshow request for minutes.
+LOCAL_PREPARE_PER_REQUEST = 1
+# Without a directory-mtime change, re-stat the local photos at most this
+# often. An in-place overwrite (same name) leaves the directory mtime alone,
+# so it is picked up within this window.
+LOCAL_RESCAN_SECONDS = 60.0
+# A replaced or removed photo's prepared copy stays servable this long: the
+# kiosk may have just received its URL for the hidden crossfade slot.
+LOCAL_RETIRE_GRACE_SECONDS = 300.0
+# Decode budget per provider tick. A backlog of forty phone photos must not
+# hold up the Lightroom sync and the status update for minutes; what is left
+# continues next tick and, while the slideshow runs, one per request.
+LOCAL_PREPARE_TICK_SECONDS = 20.0
+# ``draft`` lets libjpeg decode at reduced scale; PNG and WebP have no such
+# path and decode in full. 12 Mpx is ~36 MB RGB, well inside the backend's
+# share of a 512 MB Pi — anything larger is skipped rather than risking the
+# OOM killer taking the whole backend down.
+NON_JPEG_MAX_PIXELS = 12_000_000
+
+LocalKey = tuple[str, int, int]
+
+
 def _compute_next_retry(attempts: int) -> float:
     backoff = _INITIAL_BACKOFF_SECONDS * (2 ** max(attempts - 1, 0))
     return min(backoff, _MAX_BACKOFF_SECONDS)
+
+
+def _image_files(directory: Path, suffixes: frozenset[str]) -> list[Path]:
+    """Shared walk for the demo set and user-owned photos. Dotfiles are
+    skipped: macOS AppleDouble companions (``._photo.jpg``) carry the image
+    suffix but hold resource-fork bytes no browser can decode."""
+    return [
+        path
+        for path in sorted(directory.iterdir())
+        if not path.name.startswith(".")
+        and path.suffix.lower() in suffixes
+        and path.is_file()
+    ]
+
+
+def _public_path(prefix: str, filename: str) -> str:
+    # ``#``, ``%`` or ``?`` in a user's filename would otherwise end the path
+    # early or form a broken escape, so the browser requests a different URL.
+    return f"{prefix}/{quote(filename)}"
 
 
 class ImageCache:
@@ -80,11 +129,28 @@ class ImageCache:
         # the SD card when the typical case is "nothing failed".
         self._failures_dirty = False
         # User-owned photos live outside the Lightroom cache so a remote
-        # manifest refresh can never delete them. Cache the directory listing
-        # just like the bundled demo set; the slideshow asks for a new entry
-        # every 15 seconds on the Pi.
-        self._local_entries_cache: list[PhotoManifestEntry] | None = None
-        self._local_entries_mtime: float | None = None
+        # manifest refresh can never delete them. Each one is normalised once
+        # into ``local_cache_dir`` under a digest of (name, size, mtime): a
+        # file replaced under the same name gets a new copy, and an unchanged
+        # one reuses its copy across restarts without decoding again.
+        self.local_cache_dir = self.cache_dir / "local"
+        self._local_prepared: dict[LocalKey, PhotoManifestEntry] = {}
+        self._local_failed: set[LocalKey] = set()
+        self._local_order: list[LocalKey] = []
+        self._local_pending: list[tuple[Path, LocalKey]] = []
+        self._local_retired: dict[str, tuple[PhotoManifestEntry, float]] = {}
+        self._local_scan_mtime: float | None = None
+        self._local_scanned_at = float("-inf")
+        self._local_next_expiry = float("inf")
+        # Photos shown in the current round, so a pool that grows mid-round
+        # (a newly prepared local photo) does not re-shuffle the round.
+        self._shown_this_round: set[str] = set()
+        # Waitress serves /api/screensaver/next on several threads; the
+        # rotation queue and the local-photo bookkeeping are shared state.
+        # ``_lock`` guards short critical sections only. Decoding runs under
+        # ``_prepare_lock`` instead, so a slow decode never blocks rotation.
+        self._lock = threading.RLock()
+        self._prepare_lock = threading.Lock()
         self._selection_queue: list[PhotoManifestEntry] = []
         self._selection_signature: tuple[str, ...] = ()
         self._last_selection_path: str | None = None
@@ -185,16 +251,39 @@ class ImageCache:
 
     def next_entry(self, *, include_demo: bool = True) -> PhotoManifestEntry | None:
         pool = self.available_entries(include_demo=include_demo)
+        with self._lock:
+            return self._select_locked(pool)
+
+    def _select_locked(self, pool: list[PhotoManifestEntry]) -> PhotoManifestEntry | None:
         if not pool:
             self._selection_queue = []
             self._selection_signature = ()
+            self._shown_this_round = set()
             return None
 
-        signature = tuple(entry.public_path for entry in pool)
-        if signature != self._selection_signature or not self._selection_queue:
+        by_path = {entry.public_path: entry for entry in pool}
+        signature = tuple(by_path)
+        if signature != self._selection_signature:
+            # The pool changed mid-round. Keep what is still queued, drop what
+            # left, and slot photos that are new to this round in at random —
+            # re-shuffling everything would bring back photos already shown.
+            self._shown_this_round &= by_path.keys()
+            queued = [
+                by_path[entry.public_path]
+                for entry in self._selection_queue
+                if entry.public_path in by_path
+            ]
+            queued_paths = {entry.public_path for entry in queued}
+            for path, entry in by_path.items():
+                if path not in queued_paths and path not in self._shown_this_round:
+                    queued.insert(self._random.randint(0, len(queued)), entry)
+            self._selection_queue = queued
+            self._selection_signature = signature
+
+        if not self._selection_queue:
             self._selection_queue = list(pool)
             self._random.shuffle(self._selection_queue)
-            self._selection_signature = signature
+            self._shown_this_round = set()
 
             # Every photo appears once per shuffled round. At the boundary
             # between rounds, avoid placing the previous final photo first
@@ -211,24 +300,60 @@ class ImageCache:
                     )
 
         selected = self._selection_queue.pop()
+        self._shown_this_round.add(selected.public_path)
         self._last_selection_path = selected.public_path
         return selected
 
-    def local_entries(self) -> list[PhotoManifestEntry]:
-        entries, mtime = self._static_entries(
-            directory=self.local_dir,
-            public_prefix="/media/screensaver-local",
-            source_prefix="local",
-            cached_entries=self._local_entries_cache,
-            cached_mtime=self._local_entries_mtime,
+    def local_entries(
+        self,
+        *,
+        max_new: int | None = LOCAL_PREPARE_PER_REQUEST,
+        wait: bool = False,
+        time_budget: float | None = None,
+    ) -> list[PhotoManifestEntry]:
+        """User-owned photos that are ready to show, each normalised to the
+        display size like the Lightroom images. A full-resolution phone photo
+        would otherwise be decoded at ~96 MB per crossfade slot inside WPE on
+        a 512 MB Pi.
+
+        Request threads use the defaults: at most ``max_new`` decodes, and
+        none at all while another thread is preparing. The provider thread
+        calls ``prepare_local_photos`` to work through the whole backlog."""
+        if not self.local_dir or not self.local_dir.is_dir():
+            return []
+        with self._lock:
+            self._rescan_local_locked()
+            pending = list(self._local_pending)
+            # Retired copies only need a sweep once the earliest grace period
+            # has run out, not on every request during those five minutes.
+            work = bool(pending) or self._clock() >= self._local_next_expiry
+        if work:
+            self._prepare_pending(
+                pending, max_new=max_new, wait=wait, time_budget=time_budget
+            )
+        with self._lock:
+            return [
+                self._local_prepared[key]
+                for key in self._local_order
+                if key in self._local_prepared
+            ]
+
+    def prepare_local_photos(self) -> list[PhotoManifestEntry]:
+        # Retry photos that failed before, once per provider tick: a
+        # MemoryError while WPE held a lot of RAM is transient. A file that is
+        # simply broken fails fast and costs one attempt per tick.
+        with self._lock:
+            if self._local_failed:
+                self._local_failed.clear()
+                self._local_scanned_at = float("-inf")
+        return self.local_entries(
+            max_new=None, wait=True, time_budget=LOCAL_PREPARE_TICK_SECONDS
         )
-        self._local_entries_cache = entries
-        self._local_entries_mtime = mtime
-        return list(entries)
 
     def demo_entries(self) -> list[PhotoManifestEntry]:
         # Plan C2: re-walking the demo directory on every slideshow tick is
         # wasted syscalls — cache the list and invalidate on demo-dir mtime.
+        # The demo set ships with the repo, so a directory mtime is enough.
         if not self.demo_dir or not self.demo_dir.exists():
             self._demo_entries_cache = []
             self._demo_entries_mtime = None
@@ -243,65 +368,178 @@ class ImageCache:
         ):
             return list(self._demo_entries_cache)
 
-        entries: list[PhotoManifestEntry] = []
-        for path in sorted(self.demo_dir.iterdir()):
-            if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".svg"}:
-                continue
-            entries.append(
-                PhotoManifestEntry(
-                    id=path.stem,
-                    source_url=path.name,
-                    local_path=str(path.resolve()),
-                    public_path=f"/static/images/demo-screensaver/{path.name}",
-                    width=self.display_size[0],
-                    height=self.display_size[1],
-                    content_hash=path.stem,
-                )
+        entries = [
+            PhotoManifestEntry(
+                id=path.stem,
+                source_url=path.name,
+                local_path=str(path.resolve()),
+                public_path=_public_path("/static/images/demo-screensaver", path.name),
+                width=self.display_size[0],
+                height=self.display_size[1],
+                content_hash=path.stem,
             )
+            for path in _image_files(self.demo_dir, DEMO_IMAGE_SUFFIXES)
+        ]
         self._demo_entries_cache = list(entries)
         self._demo_entries_mtime = current_mtime
         return entries
 
     def local_entry_for_filename(self, filename: str) -> PhotoManifestEntry | None:
-        for entry in self.local_entries():
+        entry = self._lookup_local(filename)
+        if entry is None:
+            # Right after a restart nothing is registered yet, although the
+            # copies are on disk. Adopt those (``max_new=0``: never decode on
+            # the media route) and look again.
+            self.local_entries(max_new=0)
+            entry = self._lookup_local(filename)
+        return entry
+
+    def _lookup_local(self, filename: str) -> PhotoManifestEntry | None:
+        with self._lock:
+            candidates = list(self._local_prepared.values()) + [
+                entry for entry, _ in self._local_retired.values()
+            ]
+        for entry in candidates:
             if Path(entry.local_path).name == filename:
                 return entry
         return None
 
-    def _static_entries(
-        self,
-        *,
-        directory: Path | None,
-        public_prefix: str,
-        source_prefix: str,
-        cached_entries: list[PhotoManifestEntry] | None,
-        cached_mtime: float | None,
-    ) -> tuple[list[PhotoManifestEntry], float | None]:
-        if not directory or not directory.exists():
-            return [], None
+    def _rescan_local_locked(self) -> None:
+        now = self._clock()
         try:
-            current_mtime = directory.stat().st_mtime
+            mtime = self.local_dir.stat().st_mtime
         except OSError:
-            current_mtime = None
-        if cached_entries is not None and current_mtime == cached_mtime:
-            return list(cached_entries), current_mtime
-
-        entries: list[PhotoManifestEntry] = []
-        for path in sorted(directory.iterdir()):
-            if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+            mtime = None
+        if (
+            mtime == self._local_scan_mtime
+            and now - self._local_scanned_at < LOCAL_RESCAN_SECONDS
+        ):
+            return
+        order: list[LocalKey] = []
+        pending: list[tuple[Path, LocalKey]] = []
+        try:
+            paths = _image_files(self.local_dir, LOCAL_IMAGE_SUFFIXES)
+        except OSError as exc:
+            logger.warning("local screensaver photos unreadable: %s", exc)
+            return
+        for path in paths:
+            try:
+                stat = path.stat()
+            except OSError:
                 continue
-            entries.append(
-                PhotoManifestEntry(
-                    id=f"{source_prefix}-{path.stem}",
-                    source_url=f"{source_prefix}:{path.name}",
-                    local_path=str(path.resolve()),
-                    public_path=f"{public_prefix}/{path.name}",
-                    width=self.display_size[0],
-                    height=self.display_size[1],
-                    content_hash=path.stem,
-                )
+            key = (path.name, stat.st_size, stat.st_mtime_ns)
+            order.append(key)
+            if key not in self._local_prepared and key not in self._local_failed:
+                pending.append((path, key))
+        live = set(order)
+        for key in [key for key in self._local_prepared if key not in live]:
+            entry = self._local_prepared.pop(key)
+            self._local_retired[entry.local_path] = (entry, now)
+            self._local_next_expiry = min(
+                self._local_next_expiry, now + LOCAL_RETIRE_GRACE_SECONDS
             )
-        return entries, current_mtime
+        self._local_failed &= live
+        self._local_order = order
+        self._local_pending = pending
+        self._local_scan_mtime = mtime
+        self._local_scanned_at = now
+
+    def _prepare_pending(
+        self,
+        pending: list[tuple[Path, LocalKey]],
+        *,
+        max_new: int | None,
+        wait: bool,
+        time_budget: float | None = None,
+    ) -> None:
+        if not self._prepare_lock.acquire(blocking=wait):
+            return
+        try:
+            started = time.monotonic()
+            decoded = 0
+            for path, key in pending:
+                target = self.local_cache_dir / f"{self._local_digest(key)[:16]}.jpg"
+                if not target.exists():
+                    if max_new is not None and decoded >= max_new:
+                        continue
+                    # At least one decode per call, so a tick always progresses.
+                    if (
+                        time_budget is not None
+                        and decoded
+                        and time.monotonic() - started >= time_budget
+                    ):
+                        continue
+                    decoded += 1
+                entry = self._prepare_local(path, key, target)
+                with self._lock:
+                    if entry is None:
+                        self._local_failed.add(key)
+                    else:
+                        self._local_prepared[key] = entry
+                    if (path, key) in self._local_pending:
+                        self._local_pending.remove((path, key))
+            self._sweep_local_cache()
+        finally:
+            self._prepare_lock.release()
+
+    @staticmethod
+    def _local_digest(key: LocalKey) -> str:
+        name, size, mtime_ns = key
+        return hashlib.sha1(f"{name}\0{size}\0{mtime_ns}".encode("utf-8")).hexdigest()
+
+    def _prepare_local(
+        self, path: Path, key: LocalKey, target: Path
+    ) -> PhotoManifestEntry | None:
+        name = key[0]
+        width, height = self.display_size
+        try:
+            if Image is None or ImageOps is None:  # pragma: no cover
+                target = path
+            elif not target.exists():
+                self.local_cache_dir.mkdir(parents=True, exist_ok=True)
+                width, height = self._write_fitted(path, target)
+        except Exception as exc:  # noqa: BLE001 — Pillow exceptions vary
+            logger.warning("local screensaver photo %s skipped: %s", name, exc)
+            return None
+        return PhotoManifestEntry(
+            id=f"local-{name}",
+            source_url=f"local:{name}",
+            local_path=str(target.resolve()),
+            public_path=_public_path("/media/screensaver-local", target.name),
+            width=width,
+            height=height,
+            # Same identity the copy is keyed by: name, size and mtime change
+            # whenever the photo does, without reading it a second time.
+            content_hash=self._local_digest(key),
+        )
+
+    def _sweep_local_cache(self) -> None:
+        """Delete prepared copies nothing points to any more. Runs under
+        ``_prepare_lock`` so it never races a copy that is being written."""
+        now = self._clock()
+        with self._lock:
+            for path, (_, retired_at) in list(self._local_retired.items()):
+                if now - retired_at >= LOCAL_RETIRE_GRACE_SECONDS:
+                    del self._local_retired[path]
+            self._local_next_expiry = min(
+                (at + LOCAL_RETIRE_GRACE_SECONDS for _, at in self._local_retired.values()),
+                default=float("inf"),
+            )
+            keep = {Path(entry.local_path).name for entry in self._local_prepared.values()}
+            keep |= {Path(path).name for path in self._local_retired}
+        try:
+            stale = [
+                path
+                for path in self.local_cache_dir.iterdir()
+                if path.is_file() and path.name not in keep
+            ]
+        except OSError:
+            return
+        for path in stale:
+            try:
+                path.unlink()
+            except OSError as exc:
+                logger.warning("could not remove stale local copy %s: %s", path, exc)
 
     def entry_for_filename(self, filename: str) -> PhotoManifestEntry | None:
         for entry in self._entries:
@@ -417,19 +655,9 @@ class ImageCache:
         width, height = self.display_size
 
         if Image is not None and ImageOps is not None:
-            # Plan B9: any Pillow error — malformed bytes, dimensions over
-            # the MAX_IMAGE_PIXELS cap, unsupported format — becomes a
-            # skipped entry with an exponential-backoff retry, never a
-            # crash of the refresh loop.
             try:
-                with Image.open(io.BytesIO(payload)) as image:
-                    prepared = ImageOps.exif_transpose(image).convert("RGB")
-                    fitted = ImageOps.fit(
-                        prepared, self.display_size, method=Image.Resampling.LANCZOS
-                    )
-                    fitted.save(local_path, format="JPEG", quality=86, optimize=True)
-                    width, height = fitted.size
-            except (OSError, ValueError, Image.DecompressionBombError) as exc:
+                width, height = self._write_fitted(payload, local_path)
+            except RuntimeError as exc:
                 raise RuntimeError(
                     f"unable to decode image {source_url}: {exc}"
                 ) from exc
@@ -447,6 +675,39 @@ class ImageCache:
             etag=headers.get("etag"),
             last_modified=headers.get("last-modified"),
         )
+
+    def _write_fitted(self, source: bytes | Path, target: Path) -> tuple[int, int]:
+        # Plan B9: any Pillow error — malformed bytes, dimensions over the
+        # MAX_IMAGE_PIXELS cap, unsupported format — becomes a RuntimeError the
+        # caller turns into a skipped entry, never a crash of the refresh loop.
+        try:
+            opened = io.BytesIO(source) if isinstance(source, bytes) else source
+            with Image.open(opened) as image:
+                # JPEG only (a no-op otherwise): let libjpeg decode at 1/2–1/8
+                # scale instead of building the full-resolution bitmap. A
+                # square request keeps both edges at least the display's long
+                # edge whatever the EXIF rotation, so the cover-fit below
+                # never has to upscale a draft.
+                edge = max(self.display_size)
+                image.draft("RGB", (edge, edge))
+                if image.format != "JPEG" and image.width * image.height > NON_JPEG_MAX_PIXELS:
+                    raise ValueError(
+                        f"{image.format} {image.width}x{image.height} exceeds "
+                        f"{NON_JPEG_MAX_PIXELS} px without a reduced decode path"
+                    )
+                prepared = ImageOps.exif_transpose(image).convert("RGB")
+                fitted = ImageOps.fit(
+                    prepared, self.display_size, method=Image.Resampling.LANCZOS
+                )
+                # Write aside, then rename: a power cut mid-save must not leave
+                # a truncated JPEG under the final name, where the local-photo
+                # path would reuse it as "already prepared" forever.
+                partial = target.with_name(f"{target.name}.partial")
+                fitted.save(partial, format="JPEG", quality=86, optimize=True)
+                os.replace(partial, target)
+                return fitted.size
+        except (OSError, ValueError, MemoryError, Image.DecompressionBombError) as exc:
+            raise RuntimeError(str(exc)) from exc
 
     def _default_download(self, url: str, timeout_seconds: int) -> DownloadResult:
         if self._http is None:

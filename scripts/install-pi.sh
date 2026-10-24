@@ -80,7 +80,13 @@ fi
 OPTIONAL_KIOSK_PACKAGES=()
 # Ticket #1: compressed swap in RAM — no SD writes, buys headroom for WPE on
 # 512 MB. SMART_DISPLAY_ZRAM=false skips it.
-if [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" ]]; then
+# Raspberry Pi OS 13 (Trixie) ships rpi-swap, which claims /dev/zram0 at boot;
+# zram-tools would then fail on every boot (#6). There, step 8 configures
+# rpi-swap instead and zram-tools stays off the machine.
+RPI_SWAP_GENERATOR="/usr/lib/systemd/system-generators/rpi-swap-generator"
+HAS_RPI_SWAP="false"
+[[ -x "$RPI_SWAP_GENERATOR" ]] && HAS_RPI_SWAP="true"
+if [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" && "$HAS_RPI_SWAP" != "true" ]]; then
     OPTIONAL_KIOSK_PACKAGES+=(zram-tools)
 fi
 if [[ "$INSTALL_COG" == "true" ]]; then
@@ -252,11 +258,29 @@ install -m 644 "$INSTALL_DIR/deploy/systemd/system-watchdog.conf" \
 echo "  systemd: RuntimeWatchdogSec=15 (wirkt nach Reboot bzw. daemon-reexec)"
 
 # zram-Swap (128 MB komprimiert im RAM, keine SD-Schreibzugriffe).
-if [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" && -f /etc/default/zramswap ]]; then
+if [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" && "$HAS_RPI_SWAP" == "true" ]]; then
+    # rpi-swap defaults to zram+file: zram as large as RAM plus /var/swap on
+    # the SD card, with a timer writing idle pages back to it (#6). Pure zram
+    # makes the generator remove /var/swap on the next boot.
+    install -d -m 755 /etc/rpi/swap.conf.d
+    install -m 644 "$INSTALL_DIR/deploy/swap/rpi-swap-smart-display.conf" \
+        /etc/rpi/swap.conf.d/smart-display.conf
+    # An earlier install put zram-tools next to rpi-swap; it can only fail.
+    if systemctl cat zramswap.service >/dev/null 2>&1; then
+        systemctl disable zramswap.service >/dev/null 2>&1 || true
+        systemctl reset-failed zramswap.service >/dev/null 2>&1 || true
+        echo "  zramswap.service deaktiviert (rpi-swap verwaltet zram0)"
+    fi
+    echo "  zram: 128 MB über rpi-swap, ohne Swap-Datei (aktiv nach Reboot)"
+elif [[ "$HAS_RPI_SWAP" == "true" && -f /etc/rpi/swap.conf.d/smart-display.conf ]]; then
+    # SMART_DISPLAY_ZRAM=false: hand swap back to the OS default.
+    rm -f /etc/rpi/swap.conf.d/smart-display.conf
+    echo "  zram: smart-display-Vorgabe entfernt, rpi-swap-Standard gilt (nach Reboot)"
+elif [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" && -f /etc/default/zramswap ]]; then
     sed -i -e 's/^#\?SIZE=.*/SIZE=128/' -e 's/^#\?PERCENT=.*/#PERCENT=/' /etc/default/zramswap
     grep -qE '^SIZE=' /etc/default/zramswap || echo "SIZE=128" >> /etc/default/zramswap
     systemctl enable zramswap.service >/dev/null 2>&1 || true
-    echo "  zram: 128 MB (aktiv nach Reboot)"
+    echo "  zram: 128 MB über zram-tools (aktiv nach Reboot)"
 fi
 
 # sudo-Regel: genau zwei Kommandos für den Ausschaltknopf, nichts sonst.
