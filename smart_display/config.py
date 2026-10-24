@@ -113,6 +113,10 @@ class AppConfig:
         return self.screensaver_cache_dir / "manifest.json"
 
     @property
+    def screensaver_local_dir(self) -> Path:
+        return self.app.data_dir / "screensaver-local"
+
+    @property
     def default_config_path(self) -> Path:
         return self.root_dir / "config" / "default.yaml"
 

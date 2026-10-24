@@ -100,31 +100,30 @@ class LightroomSourceProvider(BaseProvider):
         self._http = http_client or HttpClient()
 
     def refresh(self) -> None:
-        available_demo = (
-            len(self.image_cache.demo_entries())
-            if self.config.screensaver.demo_images_enabled
-            else 0
-        )
+        def available_photo_count() -> int:
+            return self.image_cache.available_count(
+                include_demo=self.config.screensaver.demo_images_enabled
+            )
 
         if not self.config.screensaver.enabled:
             self.state_store.set_provider_snapshot(
                 self.section_name,
                 self.snapshot(status="empty", error_message="Screensaver deaktiviert."),
             )
-            self.state_store.set_screensaver_photo_count(self.image_cache.count())
+            self.state_store.set_screensaver_photo_count(available_photo_count())
             return
 
         if not self.config.screensaver.source_url:
+            local_photo_count = len(self.image_cache.local_entries())
             self.state_store.set_provider_snapshot(
                 self.section_name,
-                self.snapshot(
-                    status="empty",
-                    error_message="Keine Lightroom-Quelle konfiguriert.",
+                self.snapshot(status="ok", source="local")
+                if local_photo_count
+                else self.snapshot(
+                    status="empty", error_message="Keine Bildquelle konfiguriert."
                 ),
             )
-            self.state_store.set_screensaver_photo_count(
-                self.image_cache.count() or available_demo
-            )
+            self.state_store.set_screensaver_photo_count(available_photo_count())
             return
 
         try:
@@ -144,17 +143,15 @@ class LightroomSourceProvider(BaseProvider):
             )
             status = "ok" if entries else "empty"
             self.state_store.set_provider_snapshot(self.section_name, self.snapshot(status=status))
-            self.state_store.set_screensaver_photo_count(len(entries))
+            self.state_store.set_screensaver_photo_count(available_photo_count())
         except (HttpError, RuntimeError) as exc:
             self.logger.warning("screensaver refresh failed: %s", exc)
-            fallback_status = "stale" if self.image_cache.count() > 0 else "error"
+            fallback_status = "stale" if available_photo_count() > 0 else "error"
             self.state_store.set_provider_snapshot(
                 self.section_name,
                 self.snapshot(status=fallback_status, error_message=str(exc)),
             )
-            self.state_store.set_screensaver_photo_count(
-                self.image_cache.count() or available_demo
-            )
+            self.state_store.set_screensaver_photo_count(available_photo_count())
 
     def _get_album_page(self):
         url = self.config.screensaver.source_url

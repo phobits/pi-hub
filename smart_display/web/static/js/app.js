@@ -2,6 +2,7 @@
   const boot = window.__SMART_DISPLAY__ || {};
   const config = boot.config || {};
   let state = boot.state || {};
+  let stateEtag = typeof config.state_etag === "string" ? config.state_etag : "";
   let screensaverActive = false;
   let idleTimer = null;
   let pollTimer = null;
@@ -1844,11 +1845,22 @@
 
   async function fetchState() {
     try {
-      const response = await fetch("/api/state", { cache: "no-store" });
+      const headers = stateEtag ? { "If-None-Match": stateEtag } : {};
+      const response = await fetch("/api/state", {
+        cache: "no-store",
+        headers,
+      });
+      if (response.status === 304) {
+        return;
+      }
       if (!response.ok) {
         return;
       }
       const payload = await response.json();
+      const nextEtag = response.headers.get("ETag");
+      if (nextEtag) {
+        stateEtag = nextEtag;
+      }
       render(payload);
     } catch (error) {
       window.console.debug("state refresh failed", error);

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file
@@ -7,6 +8,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request, sen
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from smart_display.cache.disk_cache import DiskCache
 from smart_display.i18n import format_initial_clock
 from smart_display.models import PhotoManifestEntry
 from smart_display.night import is_night, window_for_ui
@@ -52,6 +54,15 @@ def _with_runtime_flags(state: dict, services: dict) -> dict:
     return state
 
 
+def _encode_state(state: dict) -> tuple[bytes, str]:
+    """Encode the poll payload once and derive its entity tag from the bytes.
+    The tag is content-based rather than a process-local counter, so a kiosk
+    browser surviving a backend restart can never receive a false 304. An
+    unchanged poll then costs the WPE browser no JSON parse and no re-render."""
+    payload = DiskCache.serialize(state)
+    return payload, hashlib.blake2s(payload, digest_size=12).hexdigest()
+
+
 def create_blueprint() -> Blueprint:
     blueprint = Blueprint("web", __name__)
 
@@ -60,6 +71,7 @@ def create_blueprint() -> Blueprint:
         services = current_app.extensions["smart_display"]
         config = services["config"]
         state = _with_runtime_flags(services["state_store"].to_dict(), services)
+        _, state_etag = _encode_state(state)
         # Plan B14: render the hero clock on the server so the cold-reload
         # first frame is correct. JS overwrites these values on its first tick.
         clock_factory = services.get("clock_factory", format_initial_clock)
@@ -96,6 +108,7 @@ def create_blueprint() -> Blueprint:
                 "watch_face": config.app.watch_face,
                 "night": night_window,
                 "allow_shutdown": bool(config.app.allow_shutdown),
+                "state_etag": state_etag,
             },
             initial_state=state,
             initial_night=initial_night,
@@ -113,7 +126,21 @@ def create_blueprint() -> Blueprint:
     @blueprint.get("/api/state")
     def api_state():
         services = current_app.extensions["smart_display"]
-        return jsonify(_with_runtime_flags(services["state_store"].to_dict(), services))
+        state = _with_runtime_flags(services["state_store"].to_dict(), services)
+        payload, etag = _encode_state(state)
+        if request.if_none_match.contains(etag):
+            response = current_app.response_class(status=304)
+        else:
+            response = current_app.response_class(
+                payload,
+                mimetype="application/json",
+            )
+        response.set_etag(etag)
+        # The browser may retain the local response but must validate it. Its
+        # explicit If-None-Match header makes this work consistently in both
+        # Blink and the Pi's WPE WebKit engine.
+        response.cache_control.no_cache = True
+        return response
 
     # ---- Timers (Ticket #3) ---------------------------------------------------
 
@@ -296,6 +323,14 @@ def create_blueprint() -> Blueprint:
     def screensaver_media(filename: str):
         services = current_app.extensions["smart_display"]
         entry = services["image_cache"].entry_for_filename(filename)
+        if entry is None:
+            return jsonify({"error": "not found"}), 404
+        return send_file(Path(entry.local_path))
+
+    @blueprint.get("/media/screensaver-local/<path:filename>")
+    def local_screensaver_media(filename: str):
+        services = current_app.extensions["smart_display"]
+        entry = services["image_cache"].local_entry_for_filename(filename)
         if entry is None:
             return jsonify({"error": "not found"}), 404
         return send_file(Path(entry.local_path))

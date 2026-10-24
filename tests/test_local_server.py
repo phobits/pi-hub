@@ -340,6 +340,27 @@ class LoopbackOnlyPostsTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
 
+    def test_get_state_returns_304_for_matching_etag(self) -> None:
+        first = self.client.get("/api/state")
+        etag = first.headers.get("ETag")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(etag)
+        self.assertEqual(first.headers.get("Cache-Control"), "no-cache")
+
+        unchanged = self.client.get("/api/state", headers={"If-None-Match": etag})
+
+        self.assertEqual(unchanged.status_code, 304)
+        self.assertEqual(unchanged.data, b"")
+        self.assertEqual(unchanged.headers.get("ETag"), etag)
+
+        self.state_store.set_screensaver_photo_count(1)
+        changed = self.client.get("/api/state", headers={"If-None-Match": etag})
+
+        self.assertEqual(changed.status_code, 200)
+        self.assertNotEqual(changed.headers.get("ETag"), etag)
+        self.assertEqual(changed.get_json()["system"]["screensaver_photo_count"], 1)
+
 
 class _FakeWaitressModule(types.ModuleType):
     """Tiny stand-in so ``serve_app`` can import ``waitress.serve`` during

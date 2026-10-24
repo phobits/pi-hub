@@ -171,7 +171,7 @@ fi
 
 echo "=== 5/8  Datenverzeichnis ==="
 DATA_DIR="$INSTALL_DIR/data"
-mkdir -p "$DATA_DIR/screensaver" "$DATA_DIR/measurements"
+mkdir -p "$DATA_DIR/screensaver" "$DATA_DIR/screensaver-local" "$DATA_DIR/measurements"
 chown -R "$SERVICE_USER":"$SERVICE_GROUP" "$DATA_DIR"
 echo "  $DATA_DIR bereit"
 

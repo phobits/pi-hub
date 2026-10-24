@@ -60,9 +60,13 @@ done
 RSYNC_OWNED=(
     --exclude '.venv'
     --exclude 'data'
+    # Keep deployable templates, but never let --delete remove device-side
+    # credential backups such as .env.before-<date>.
+    --include '.env.example'
+    --include '.env.local.example'
     --exclude '.env'
-    --exclude '.env.local'
-    --exclude '.kiosk.env'
+    --exclude '.env.*'
+    --exclude '.kiosk.env*'
     --exclude '__pycache__'
     --exclude '*.py[cod]'
     --exclude '.git'

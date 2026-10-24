@@ -39,13 +39,23 @@ class DiskCache:
             return None
 
     def save(self, payload: Any) -> None:
+        self.save_serialized(self.serialize(payload))
+
+    @staticmethod
+    def serialize(payload: Any) -> bytes:
+        """Encode a cache payload once for disk and other local consumers."""
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+    def save_serialized(self, payload: bytes) -> None:
+        """Atomically persist an already encoded JSON payload."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.path.with_suffix(f"{self.path.suffix}.tmp")
-        temp_path.write_text(
-            # Machine-owned cache: compact JSON reduces periodic SD-card writes.
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
-        )
+        # Machine-owned cache: compact JSON reduces periodic SD-card writes.
+        temp_path.write_bytes(payload)
         temp_path.replace(self.path)
 
     def _quarantine_corrupt(self, exc: Exception) -> None:

@@ -53,12 +53,16 @@ class ImageCache:
         *,
         display_size: tuple[int, int] = (1024, 600),
         downloader: Callable[[str, int], DownloadResult] | None = None,
+        remote_enabled: bool = True,
+        local_dir: str | Path | None = None,
         demo_dir: str | Path | None = None,
         http_client: HttpClient | None = None,
         clock: Callable[[], float] | None = None,
     ):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.remote_enabled = remote_enabled
+        self.local_dir = Path(local_dir) if local_dir else None
         self.demo_dir = Path(demo_dir) if demo_dir else None
         self.manifest_cache = DiskCache(manifest_path)
         self.failures_cache = DiskCache(self.cache_dir / "failed.json")
@@ -75,6 +79,15 @@ class ImageCache:
         # writing the file every refresh tick is pointless churn against
         # the SD card when the typical case is "nothing failed".
         self._failures_dirty = False
+        # User-owned photos live outside the Lightroom cache so a remote
+        # manifest refresh can never delete them. Cache the directory listing
+        # just like the bundled demo set; the slideshow asks for a new entry
+        # every 15 seconds on the Pi.
+        self._local_entries_cache: list[PhotoManifestEntry] | None = None
+        self._local_entries_mtime: float | None = None
+        self._selection_queue: list[PhotoManifestEntry] = []
+        self._selection_signature: tuple[str, ...] = ()
+        self._last_selection_path: str | None = None
         # Plan C2: caching the demo-entries list avoids re-walking the demo
         # directory every slideshow tick (≤15 s on the Pi). Invalidate via
         # manifest mtime so edits still land on the next call.
@@ -86,6 +99,17 @@ class ImageCache:
 
     def count(self) -> int:
         return len(self._entries)
+
+    def available_entries(
+        self, *, include_demo: bool = True
+    ) -> list[PhotoManifestEntry]:
+        entries = (self._entries if self.remote_enabled else []) + self.local_entries()
+        if not entries and include_demo:
+            entries = self.demo_entries()
+        return list(entries)
+
+    def available_count(self, *, include_demo: bool = True) -> int:
+        return len(self.available_entries(include_demo=include_demo))
 
     def sync_remote_images(
         self,
@@ -160,12 +184,47 @@ class ImageCache:
         return self.entries()
 
     def next_entry(self, *, include_demo: bool = True) -> PhotoManifestEntry | None:
-        pool = self._entries
-        if not pool and include_demo:
-            pool = self.demo_entries()
+        pool = self.available_entries(include_demo=include_demo)
         if not pool:
+            self._selection_queue = []
+            self._selection_signature = ()
             return None
-        return self._random.choice(pool)
+
+        signature = tuple(entry.public_path for entry in pool)
+        if signature != self._selection_signature or not self._selection_queue:
+            self._selection_queue = list(pool)
+            self._random.shuffle(self._selection_queue)
+            self._selection_signature = signature
+
+            # Every photo appears once per shuffled round. At the boundary
+            # between rounds, avoid placing the previous final photo first
+            # again; otherwise the screen can look frozen for 30 seconds.
+            if len(self._selection_queue) > 1:
+                next_index = len(self._selection_queue) - 1
+                if (
+                    self._selection_queue[next_index].public_path
+                    == self._last_selection_path
+                ):
+                    self._selection_queue[0], self._selection_queue[next_index] = (
+                        self._selection_queue[next_index],
+                        self._selection_queue[0],
+                    )
+
+        selected = self._selection_queue.pop()
+        self._last_selection_path = selected.public_path
+        return selected
+
+    def local_entries(self) -> list[PhotoManifestEntry]:
+        entries, mtime = self._static_entries(
+            directory=self.local_dir,
+            public_prefix="/media/screensaver-local",
+            source_prefix="local",
+            cached_entries=self._local_entries_cache,
+            cached_mtime=self._local_entries_mtime,
+        )
+        self._local_entries_cache = entries
+        self._local_entries_mtime = mtime
+        return list(entries)
 
     def demo_entries(self) -> list[PhotoManifestEntry]:
         # Plan C2: re-walking the demo directory on every slideshow tick is
@@ -202,6 +261,47 @@ class ImageCache:
         self._demo_entries_cache = list(entries)
         self._demo_entries_mtime = current_mtime
         return entries
+
+    def local_entry_for_filename(self, filename: str) -> PhotoManifestEntry | None:
+        for entry in self.local_entries():
+            if Path(entry.local_path).name == filename:
+                return entry
+        return None
+
+    def _static_entries(
+        self,
+        *,
+        directory: Path | None,
+        public_prefix: str,
+        source_prefix: str,
+        cached_entries: list[PhotoManifestEntry] | None,
+        cached_mtime: float | None,
+    ) -> tuple[list[PhotoManifestEntry], float | None]:
+        if not directory or not directory.exists():
+            return [], None
+        try:
+            current_mtime = directory.stat().st_mtime
+        except OSError:
+            current_mtime = None
+        if cached_entries is not None and current_mtime == cached_mtime:
+            return list(cached_entries), current_mtime
+
+        entries: list[PhotoManifestEntry] = []
+        for path in sorted(directory.iterdir()):
+            if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
+                continue
+            entries.append(
+                PhotoManifestEntry(
+                    id=f"{source_prefix}-{path.stem}",
+                    source_url=f"{source_prefix}:{path.name}",
+                    local_path=str(path.resolve()),
+                    public_path=f"{public_prefix}/{path.name}",
+                    width=self.display_size[0],
+                    height=self.display_size[1],
+                    content_hash=path.stem,
+                )
+            )
+        return entries, current_mtime
 
     def entry_for_filename(self, filename: str) -> PhotoManifestEntry | None:
         for entry in self._entries:

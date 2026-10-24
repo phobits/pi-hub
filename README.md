@@ -48,7 +48,7 @@ Release history lives in [CHANGELOG.md](CHANGELOG.md).
 - Backend: `Python 3.11`, `Flask`, `Waitress`
 - UI: server-rendered shell with `HTML`, `CSS`, vanilla `JS`
 - Data flow: background jobs periodically fetch weather, CalDAV, Spotify, and Lightroom; the UI only polls `GET /api/state`
-- Persistence: `data/last_good.json` holds the last valid dashboard state; `data/screensaver/manifest.json` plus pre-converted images back the screensaver
+- Persistence: `data/last_good.json` holds the last valid dashboard state; `data/screensaver/manifest.json` plus pre-converted Lightroom images back the screensaver. User-owned photos in `data/screensaver-local/` join the rotation and are never reconciled or deleted by Lightroom refreshes.
 - Runtime model: `smart-display.service` runs the backend, `smart-display-kiosk.service` runs a local kiosk browser in fullscreen
 
 ## Why this stack
