@@ -235,5 +235,5 @@ On current Raspberry Pi OS releases the Chromium package may be named `chromium`
 
 - Spotify requires Premium and a reachable Connect target
 - CalDAV parsing sits on `caldav` and `icalendar`; some servers may need small tweaks
-- Lightroom sharing is intentionally pragmatic and depends on public image URLs in the shared HTML
+- Lightroom sharing is intentionally pragmatic: it reads the album API the public share page points to (falling back to image URLs in the shared HTML only for pages without one), so a change to Adobe's share page can break it; an unanswered or empty album API leaves the cached photos in place
 - The bundled demo images are first-run placeholders, not a substitute for a real photo feed

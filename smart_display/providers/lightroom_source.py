@@ -187,24 +187,23 @@ class LightroomSourceProvider(BaseProvider):
         if not album_api_url:
             return html_urls
 
-        try:
-            response = self._http.get(
-                album_api_url,
-                timeout=self.config.screensaver.timeout_seconds,
-                max_bytes=ALBUM_API_MAX_BYTES,
-            )
-        except HttpError:
-            if html_urls:
-                return html_urls
-            raise
-
+        # Once the page names an album API, only its answer is the album. The
+        # HTML adds just the cover (og:image) — one of the album's assets
+        # again, as a different rendition — so it is no fallback: a failed or
+        # empty answer would reconcile the cache down to that one photo and
+        # delete the rest. Raising leaves the cache alone and the tile stale.
+        response = self._http.get(
+            album_api_url,
+            timeout=self.config.screensaver.timeout_seconds,
+            max_bytes=ALBUM_API_MAX_BYTES,
+        )
         if not response.ok:
-            if html_urls:
-                return html_urls
             raise HttpError(f"Lightroom album API antwortete mit {response.status}")
 
         api_urls = _extract_lightroom_api_image_urls(response.text(), response.url)
-        return _dedupe_urls(api_urls + html_urls)
+        if not api_urls:
+            raise RuntimeError("Lightroom album API lieferte keine Bilder.")
+        return api_urls
 
 
 def _extract_lightroom_album_api_url(html_text: str, page_url: str) -> str | None:

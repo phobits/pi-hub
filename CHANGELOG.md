@@ -11,6 +11,20 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-24
+
+### Behoben
+
+- Lightroom-Screensaver: Das Titelbild eines geteilten Albums wurde zusätzlich
+  zu den Album-Fotos als eigenes Bild gespeichert und lief damit doppelt so oft
+  in der Rotation. Sobald die Share-Seite eine Album-API nennt, zählt nur noch
+  deren Liste.
+- Lightroom-Screensaver: Fiel die Album-API aus (Timeout, 5xx, zu große oder
+  leere Antwort), blieb nur das Titelbild übrig und alle anderen gecachten
+  Album-Fotos wurden gelöscht — danach lud das Gerät ein Foto pro
+  Refresh-Intervall nach, bei 30 Minuten also stundenlang. Jetzt bleibt der
+  Cache stehen und die Kachel geht auf `stale`.
+
 ## [0.9.1] - 2026-10-24
 
 ### Behoben
@@ -409,7 +423,8 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/phobits/pi-hub/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/phobits/pi-hub/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/phobits/pi-hub/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/phobits/pi-hub/compare/v0.7.0...v0.8.0

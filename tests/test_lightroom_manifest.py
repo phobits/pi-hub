@@ -184,6 +184,172 @@ class LightroomManifestTest(unittest.TestCase):
                 ],
             )
 
+    def test_album_cover_is_not_cached_as_a_second_photo(self) -> None:
+        # The share page's og:image is the album cover: one of the album's
+        # assets again, as a different rendition. With the album API
+        # answering, only its list counts — otherwise the cover photo is
+        # cached twice and shown twice per round.
+        calls: list[str] = []
+
+        def fake_downloader(url: str, timeout_seconds: int):
+            calls.append(url)
+            return SAMPLE_PNG, {}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            tmp = Path(temp_dir)
+            base = make_app_config(tmp)
+            config = replace(
+                base,
+                screensaver=replace(
+                    base.screensaver,
+                    source_url="https://lightroom.adobe.com/shares/album",
+                    images_per_tick=10,
+                ),
+            )
+            store = make_state_store(tmp)
+            cache = ImageCache(
+                cache_dir=tmp / "screensaver",
+                manifest_path=tmp / "screensaver" / "manifest.json",
+                downloader=fake_downloader,
+            )
+            http = FakeHttpClient()
+            http.add_response(
+                "GET",
+                "https://lightroom.adobe.com/shares/album",
+                body="""
+                <meta property="og:image"
+                  content="https://photos.adobe.io/v2/spaces/space/assets/a1/revisions/rev/renditions/cover?api_key=LightroomMobileWeb1">
+                <script>
+                  window.SharesConfig = {
+                    albumAttributes: {
+                      "base":"https://photos.adobe.io/v2/spaces/space/",
+                      "links":{
+                        "/rels/space_album_images_videos":{"href":"albums/album/assets"}
+                      }
+                    }
+                  };
+                </script>
+                """,
+            )
+            http.add_response(
+                "GET",
+                "https://photos.adobe.io/v2/spaces/space/albums/album/assets",
+                body="""
+                {
+                  "base": "https://photos.adobe.io/v2/spaces/space/",
+                  "resources": [
+                    {"asset": {"links": {"/rels/rendition_type/1280": {
+                      "href": "assets/a1/revisions/rev/renditions/r1280"}}}},
+                    {"asset": {"links": {"/rels/rendition_type/1280": {
+                      "href": "assets/a2/revisions/rev/renditions/r1280"}}}}
+                  ]
+                }
+                """,
+            )
+
+            provider = LightroomSourceProvider(config, store, cache, http_client=http)
+            provider.refresh()
+
+            self.assertEqual(
+                calls,
+                [
+                    "https://photos.adobe.io/v2/spaces/space/assets/a1/revisions/rev/renditions/r1280?api_key=LightroomMobileWeb1",
+                    "https://photos.adobe.io/v2/spaces/space/assets/a2/revisions/rev/renditions/r1280?api_key=LightroomMobileWeb1",
+                ],
+            )
+            self.assertEqual(cache.count(), 2)
+
+
+class AlbumApiFailureKeepsCacheTest(unittest.TestCase):
+    """The share page's HTML only carries the album cover. If a failed or
+    empty album-API answer fell back to it, the cache would be reconciled
+    down to that one photo and every other cached photo deleted — then
+    re-downloaded at images_per_tick per refresh, i.e. for hours."""
+
+    PAGE_URL = "https://lightroom.adobe.com/shares/album"
+    API_URL = "https://photos.adobe.io/v2/spaces/space/albums/album/assets"
+    PAGE = """
+    <meta property="og:image"
+      content="https://photos.adobe.io/v2/spaces/space/assets/a1/revisions/rev/renditions/cover?api_key=LightroomMobileWeb1">
+    <script>
+      window.SharesConfig = {
+        albumAttributes: {
+          "base":"https://photos.adobe.io/v2/spaces/space/",
+          "links":{"/rels/space_album_images_videos":{"href":"albums/album/assets"}}
+        }
+      };
+    </script>
+    """
+    API_OK = """
+    {
+      "base": "https://photos.adobe.io/v2/spaces/space/",
+      "resources": [
+        {"asset": {"links": {"/rels/rendition_type/1280": {
+          "href": "assets/a1/revisions/rev/renditions/r1280"}}}},
+        {"asset": {"links": {"/rels/rendition_type/1280": {
+          "href": "assets/a2/revisions/rev/renditions/r1280"}}}}
+      ]
+    }
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        base = make_app_config(self.tmp)
+        self.config = replace(
+            base,
+            screensaver=replace(
+                base.screensaver, source_url=self.PAGE_URL, images_per_tick=10
+            ),
+        )
+        self.store = make_state_store(self.tmp)
+        self.cache = ImageCache(
+            cache_dir=self.tmp / "screensaver",
+            manifest_path=self.tmp / "screensaver" / "manifest.json",
+            downloader=lambda url, timeout: (SAMPLE_PNG, {}),
+        )
+
+    def _refresh(self, **api_response) -> None:
+        http = FakeHttpClient()
+        http.add_response("GET", self.PAGE_URL, body=self.PAGE)
+        http.add_response("GET", self.API_URL, **api_response)
+        LightroomSourceProvider(
+            self.config, self.store, self.cache, http_client=http
+        ).refresh()
+
+    def _cached_files(self) -> set[str]:
+        return {Path(entry.local_path).name for entry in self.cache.entries()}
+
+    def _assert_cache_kept(self) -> set[str]:
+        before = self._cached_files()
+        self.assertEqual(len(before), 2)
+        return before
+
+    def test_api_error_keeps_cached_album(self) -> None:
+        self._refresh(body=self.API_OK)
+        before = self._assert_cache_kept()
+
+        self._refresh(status=500, body="")
+
+        self.assertEqual(self._cached_files(), before)
+        for name in before:
+            self.assertTrue((self.tmp / "screensaver" / name).exists())
+        health = self.store.health_payload()["providers"]["screensaver"]
+        self.assertEqual(health["status"], "stale")
+
+    def test_empty_api_answer_keeps_cached_album(self) -> None:
+        # A changed Adobe payload shape parses to no URLs — that must look
+        # like an outage, not like a healthy one-photo album.
+        self._refresh(body=self.API_OK)
+        before = self._assert_cache_kept()
+
+        self._refresh(body='{"resources": []}')
+
+        self.assertEqual(self._cached_files(), before)
+        health = self.store.health_payload()["providers"]["screensaver"]
+        self.assertEqual(health["status"], "stale")
+
 
 class PerTickDownloadLimitTest(unittest.TestCase):
     """Plan B9: the provider may only fetch a small number of new images
