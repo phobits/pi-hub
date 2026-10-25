@@ -191,6 +191,8 @@ came back, not that the UI is correct; say so rather than implying it was seen.
 
 The Pi runs two systemd units from `deploy/systemd/`: `smart-display.service` (the Waitress backend) and `smart-display-kiosk.service`. Anything that breaks unattended startup, idle behavior, or the screensaver fallback is a release blocker.
 
+The kiosk unit is `Requires=` + `After=` the backend, so a backend stop or restart carries down to it, and `WantedBy=smart-display.service` (#17) so a backend *start* brings it back too — without that, `systemctl stop smart-display` + `start` left the panel dark. Any backend start counts, the automatic one after a crash included, so a kiosk stopped by hand comes back then as well. Like every unit change this needs `install-pi.sh` (its `systemctl enable` creates the `smart-display.service.wants/` link); `deploy-pi.sh` cannot activate it. Live on the Pi since 2026-10-25. `scripts/pi/check-unit-restarts.sh` (on the Pi, `sudo`) checks restart, stop+start and a crash; run it after any unit change.
+
 The kiosk unit always execs `deploy/kiosk/start-kiosk.sh`, which dispatches on `KIOSK_BROWSER` from `/opt/smart-display/.kiosk.env` — **there are two mutually exclusive kiosk paths**:
 
 - `chromium` (the script's default) — Chromium in `--kiosk --app=...`, started through `xinit` with `deploy/x11/kiosk-session.sh` as the X session. Engine: Blink.

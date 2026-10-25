@@ -11,6 +11,26 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.11.4] - 2026-10-25
+
+### Behoben
+
+- Nach `systemctl stop smart-display` und `systemctl start smart-display` kommt
+  der Kiosk wieder. `Requires=` reichte Stop und Restart des Backends zum Kiosk
+  durch, einen Start aber nicht — das Panel blieb dunkel. Der Kiosk ist jetzt
+  `WantedBy=smart-display.service`; jeder Start des Backends, auch der
+  automatische nach einem Absturz, startet ihn mit. Wirkt über `install-pi.sh`
+  (`systemctl enable`), nicht über `deploy-pi.sh`
+  ([#17](https://github.com/phobits/pi-hub/issues/17)).
+
+### Hinzugefügt
+
+- `scripts/pi/check-unit-restarts.sh`: prüft auf dem Pi, dass der Kiosk
+  Restart, Stop + Start und Absturz des Backends übersteht, mit Selbsttest
+  ([#17](https://github.com/phobits/pi-hub/issues/17)).
+- `docs/produktanalyse.md` und `docs/produktbacklog.md`: Produktanalyse und
+  priorisierter Backlog.
+
 ## [0.11.3] - 2026-10-25
 
 ### Behoben
@@ -508,7 +528,8 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.3...HEAD
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.4...HEAD
+[0.11.4]: https://github.com/phobits/pi-hub/compare/v0.11.3...v0.11.4
 [0.11.3]: https://github.com/phobits/pi-hub/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/phobits/pi-hub/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/phobits/pi-hub/compare/v0.11.0...v0.11.1

@@ -22,4 +22,10 @@ OOMScoreAdjust=500
 #MemoryMax=320M
 
 [Install]
-WantedBy=multi-user.target
+# Ticket #17: Requires= above carries a backend stop/restart down to the
+# kiosk, but not a start. Being wanted by the backend makes every
+# `systemctl start smart-display` bring the kiosk back with it — including
+# the automatic restart after a crash or watchdog kill, so a kiosk stopped by
+# hand (e.g. for scripts/pi/test-panel-blank.sh) comes back then too. Takes
+# effect only via `systemctl enable` (install-pi.sh step 7), not deploy-pi.sh.
+WantedBy=multi-user.target smart-display.service

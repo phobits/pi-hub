@@ -68,7 +68,7 @@ It rsyncs the working tree to `/opt/smart-display` and restarts both units only 
 
 The screensaver pulls one new album photo per 30-minute tick. `PI_HOST=pi@<your-pi> bash scripts/sync-album.sh` pulls the whole album now: new, edited and removed photos (both units stop for about a minute; `--dry-run` only reports).
 
-On the device, `scripts/measure_pi.py --duration 60 --label baseline` writes one JSON line (memory, RSS, CPU, SD writes, `/api/state` latency, restarts) to `data/measurements/`; `scripts/pi/test-panel-blank.sh` checks whether the panel goes dark on DPMS-off.
+On the device, `scripts/measure_pi.py --duration 60 --label baseline` writes one JSON line (memory, RSS, CPU, SD writes, `/api/state` latency, restarts) to `data/measurements/`; `scripts/pi/test-panel-blank.sh` checks whether the panel goes dark on DPMS-off; `scripts/pi/check-unit-restarts.sh` checks that the kiosk survives a backend restart, stop + start and crash.
 
 ## Known limits
 

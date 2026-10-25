@@ -13,9 +13,11 @@
 #     Tick zurück — dabei löscht es jede Datei, die es nicht kennt, also auch
 #     alles, was dieser Lauf geladen hat. album_sync verweigert deshalb, solange
 #     /health antwortet.
-#   - Der Kiosk hängt per Requires= am Backend: `systemctl stop smart-display`
-#     stoppt ihn mit, `systemctl start smart-display` holt ihn aber NICHT zurück.
-#     Ohne den Kiosk explizit zu nennen, bleibt das Panel dunkel.
+#   - Der Kiosk hängt per Requires= am Backend und wird ohnehin mitgestoppt.
+#     Seit #17 startet `systemctl start smart-display` ihn auch wieder mit; beide
+#     Units stehen hier trotzdem ausdrücklich da, damit das Skript auch auf
+#     einem Pi mit älteren Units (vor install-pi.sh mit #17) das Panel nicht
+#     dunkel zurücklässt.
 # Das Starten steht in einem EXIT-Trap und SIGHUP wird ignoriert: Auch ein
 # fehlgeschlagener Abgleich oder eine abgerissene SSH-Verbindung lassen das
 # Panel nicht aus. `sudo -n`, weil das Remote-Skript über stdin kommt: eine
