@@ -11,6 +11,27 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-25
+
+### Hinzugefügt
+
+- Bildschirmschoner: Ein Wisch nach links zeigt das nächste Foto, nach rechts
+  das vorige; die letzten zehn Fotos bleiben dafür gemerkt
+  ([#13](https://github.com/phobits/pi-hub/issues/13)).
+
+### Geändert
+
+- Bildschirmschoner: Ein Tipp aufs Foto beendet ihn nicht mehr. Aufgeweckt
+  wird per Tipp auf die Uhr oder per Doppeltipp, im Nachtmodus wie bisher per
+  Tipp irgendwo; die Uhr ohne Fotos sagt jetzt
+  „Uhr antippen zum Aufwecken“. Eine Taste und ein klingelnder Timer beenden
+  ihn weiterhin sofort ([#13](https://github.com/phobits/pi-hub/issues/13)).
+
+### Behoben
+
+- Bildschirmschoner: Der Tipp, der das Panel weckt, löst nicht mehr zusätzlich
+  das Element darunter aus (etwa einen Wechsel des Uhr-Stils).
+
 ## [0.10.0] - 2026-10-24
 
 ### Hinzugefügt
@@ -432,7 +453,8 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/phobits/pi-hub/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/phobits/pi-hub/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/phobits/pi-hub/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/phobits/pi-hub/compare/v0.9.0...v0.9.1

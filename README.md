@@ -13,7 +13,7 @@ Six swappable hero clocks. Tap the hero clock to cycle through them; the choice 
 
 Regenerate the screenshots with `bash scripts/take-screenshots.sh` (headless Chrome against the local demo server, 1024×600). `python scripts/screenshot-states.py OUT_DIR` renders every state as well — idle, timer, night, empty, offline, screensaver, sheet, alarm.
 
-> The UI ships in German — this is a personal device. For reference: `Heute · Donnerstag` = Today · Thursday, `in 48 Min` = in 48 minutes, `Musik starten` = Start music, `Offline · Stand 15:10` = Offline · as of 15:10, `Berühren zum Aufwecken` = Touch to wake. The QLOCKTWO OÖ face is the Upper Austrian dialect variant of the classic word clock.
+> The UI ships in German — this is a personal device. For reference: `Heute · Donnerstag` = Today · Thursday, `in 48 Min` = in 48 minutes, `Musik starten` = Start music, `Offline · Stand 15:10` = Offline · as of 15:10, `Uhr antippen zum Aufwecken` = Tap the clock to wake. The QLOCKTWO OÖ face is the Upper Austrian dialect variant of the classic word clock.
 
 ## Spotify Screen
 
@@ -36,7 +36,7 @@ screensaver right away, and the two power actions.
   dark clock on black. *Automatisch / An / Aus* in the sheet overrides the
   window; the choice persists in `localStorage`.
 - **Bildschirmschoner** — a plain tap starts the screensaver immediately instead
-  of waiting for the idle timeout; a tap on the panel wakes it as usual. A
+  of waiting for the idle timeout; a tap on its clock wakes it. A
   ringing timer still wins.
 - **Ausschalten / Neu starten** — hold the button for two seconds. Only active
   with `APP_ALLOW_SHUTDOWN=true` in the Pi's `.env` plus the sudoers rule that
@@ -44,6 +44,10 @@ screensaver right away, and the two power actions.
   Pi halts but stays powered — unplug/replug to start it again, or install with
   `SMART_DISPLAY_GPIO_SHUTDOWN=true` so shorting GPIO3 (pin 5) to GND wakes it.
 - Over the screensaver photos the time, date and temperature sit bottom-left.
+  Swipe left for the next photo, right for the previous one (the last ten are
+  remembered). A tap on the photo does nothing; a tap on the clock — or a
+  double tap anywhere — wakes the panel. At night, with no photos to page,
+  any tap wakes it.
 
 Release history lives in [CHANGELOG.md](CHANGELOG.md).
 

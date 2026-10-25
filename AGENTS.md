@@ -71,7 +71,7 @@ Wichtige aktuelle UI-Entscheidungen:
 **Schnellmenü (Sheet von unten).** Wisch nach oben oder Tipp auf den Griff am
 unteren Rand öffnet ein Sheet mit Timer, Uhr-Stil, Nachtmodus, einem Chip, der
 den Screensaver sofort startet (normaler Tipp, kein Halten — harmlos und per
-Tipp aufs Panel rückgängig), und den beiden Power-Aktionen. Der Griff (44×4 px, Trefferfläche 120×26 px) ist **kein**
+Tipp auf die Uhr rückgängig), und den beiden Power-Aktionen. Der Griff (44×4 px, Trefferfläche 120×26 px) ist **kein**
 Seitenindikator: Er zeigt eine Kante, die sich hochziehen lässt, und liegt in
 der Body-Padding-Zone, damit er auf beiden Screens nichts überdeckt. Power-Aktionen
 nur mit 2-s-Halten, nie per Tipp; ohne `APP_ALLOW_SHUTDOWN=true` sind sie
@@ -87,6 +87,17 @@ rein visuell — keinen Ton „vorbereiten“.
 nichts bewegt sich. Der Screensaver zeigt dann keine Fotos, sondern eine dunkle
 Uhr auf Schwarz. Das ist das Maximum, das Software auf diesem Panel kann — das
 Backlight hängt an der Display-Platine, nicht am Pi.
+
+**Screensaver-Gesten.** Wisch nach links zeigt das nächste Foto, nach rechts
+das vorige (Verlauf der letzten zehn Pfade im Frontend, der Server-Runde ist
+das egal). Ein Tipp aufs Foto tut **nichts** — sonst würde jeder Wisch den
+Screensaver beenden. Geweckt wird per Tipp auf die Uhr (Foto- und
+Flip-Uhr, Trefferfläche 32 px größer als die Uhr, per Geometrie geprüft, weil
+`.screensaver__info` `pointer-events: none` ist) oder per Doppeltipp irgendwo.
+Nachts gibt es nichts zu blättern, dort weckt **jeder** Tipp. Alles löst beim
+Aufsetzen aus, wie früher der einfache Tipp. Eine Taste weckt
+sofort, ein klingelnder Timer beendet ihn von selbst. Nachts und ohne Fotos
+blättert der Wisch nicht.
 
 Diese Entscheidungen nicht versehentlich zurückbauen.
 

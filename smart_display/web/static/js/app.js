@@ -753,6 +753,7 @@
     screensaverImageA: document.getElementById("screensaver-image-a"),
     screensaverImageB: document.getElementById("screensaver-image-b"),
     screensaverFallback: document.getElementById("screensaver-fallback"),
+    screensaverClock: document.getElementById("screensaver-clock"),
     // Ticket #2: info overlay over photos / dim night clock.
     screensaverInfo: document.getElementById("screensaver-info"),
     screensaverTime: document.getElementById("screensaver-time"),
@@ -2503,25 +2504,36 @@
         slot.removeEventListener("error", onError);
         resolve(false);
       };
+      // A swipe back can land on the retired slot that still holds this very
+      // photo; re-assigning an unchanged src is not guaranteed to fire load.
+      if (slot.getAttribute("src") === src && slot.complete && slot.naturalWidth > 0) {
+        resolve(true);
+        return;
+      }
       slot.addEventListener("load", onLoad);
       slot.addEventListener("error", onError);
       slot.src = src;
     });
   }
 
-  async function loadScreensaverImage() {
-    const image = await fetchNextScreensaverImage();
-    // Night can take over while the fetch is in flight (minute tick or the
-    // sheet). Then this result is stale: painting it would override the dark
-    // clock for the rest of the night, because applyNight only re-evaluates
-    // on the next night-value change.
-    if (screensaverMode === "night" || !screensaverActive) {
-      return;
-    }
-    if (!image) {
-      showScreensaverFallback();
-      return;
-    }
+  // Ticket #13: swiping back needs the photos already shown, and the server
+  // round cannot give them again. Only the paths are kept — re-decoding one
+  // on demand is cheaper than holding a third bitmap. ``historyIndex`` is the
+  // visible photo; it sits below the end only after a swipe back.
+  const SCREENSAVER_HISTORY_MAX = 10;
+  let screensaverHistory = [];
+  let screensaverHistoryIndex = -1;
+  // Every load bumps this; a load that finishes after a newer one started
+  // (the slideshow tick racing a swipe, or two quick swipes) is dropped.
+  let screensaverLoadSeq = 0;
+
+  function resetScreensaverHistory() {
+    screensaverHistory = [];
+    screensaverHistoryIndex = -1;
+  }
+
+  // Resolves "shown", "failed" or "stale".
+  async function paintScreensaverImage(src, seq) {
     if (!activeScreensaverSlot) {
       activeScreensaverSlot = nodes.screensaverImageA;
     }
@@ -2530,11 +2542,15 @@
         ? nodes.screensaverImageB
         : nodes.screensaverImageA;
 
-    const loaded = await loadImageInSlot(nextSlot, image.public_path);
-    if (!loaded || screensaverMode === "night" || !screensaverActive) {
-      // Leave the current slot visible; a failure must not blank the panel,
-      // and a decode that finishes after night took over must not undo it.
-      return;
+    const loaded = await loadImageInSlot(nextSlot, src);
+    if (seq !== screensaverLoadSeq || screensaverMode === "night" || !screensaverActive) {
+      // A decode that finishes after night took over must not undo it, and a
+      // superseded one must not overwrite the newer photo.
+      return "stale";
+    }
+    if (!loaded) {
+      // Leave the current slot visible; a failure must not blank the panel.
+      return "failed";
     }
 
     // Swap visibility: activate the freshly loaded slot and retire the old
@@ -2543,6 +2559,58 @@
     activeScreensaverSlot.classList.remove("is-active");
     activeScreensaverSlot = nextSlot;
     setScreensaverMode("photo");
+    return "shown";
+  }
+
+  async function showScreensaverHistoryEntry(index, seq) {
+    const result = await paintScreensaverImage(screensaverHistory[index], seq);
+    if (result === "shown") {
+      screensaverHistoryIndex = index;
+    } else if (result === "failed") {
+      // Gone since it was shown (Lightroom reconciliation, a replaced local
+      // photo): drop it so the next swipe reaches past it.
+      screensaverHistory.splice(index, 1);
+      if (index < screensaverHistoryIndex) {
+        screensaverHistoryIndex -= 1;
+      }
+    }
+  }
+
+  async function showNextScreensaverImage() {
+    const seq = ++screensaverLoadSeq;
+    // After a swipe back, "next" walks forward through what was already shown
+    // before it asks the server for a new photo.
+    if (screensaverHistoryIndex < screensaverHistory.length - 1) {
+      await showScreensaverHistoryEntry(screensaverHistoryIndex + 1, seq);
+      return;
+    }
+    const image = await fetchNextScreensaverImage();
+    // Night can take over while the fetch is in flight (minute tick or the
+    // sheet). Then this result is stale: painting it would override the dark
+    // clock for the rest of the night, because applyNight only re-evaluates
+    // on the next night-value change.
+    if (seq !== screensaverLoadSeq || screensaverMode === "night" || !screensaverActive) {
+      return;
+    }
+    if (!image) {
+      showScreensaverFallback();
+      return;
+    }
+    if ((await paintScreensaverImage(image.public_path, seq)) !== "shown") {
+      return;
+    }
+    screensaverHistory.push(image.public_path);
+    if (screensaverHistory.length > SCREENSAVER_HISTORY_MAX) {
+      screensaverHistory.shift();
+    }
+    screensaverHistoryIndex = screensaverHistory.length - 1;
+  }
+
+  function showPreviousScreensaverImage() {
+    if (screensaverHistoryIndex <= 0) {
+      return;
+    }
+    showScreensaverHistoryEntry(screensaverHistoryIndex - 1, ++screensaverLoadSeq);
   }
 
   function showScreensaverFallback() {
@@ -2551,6 +2619,7 @@
       slot.classList.remove("is-active");
     });
     activeScreensaverSlot = null;
+    // History survives: one failed fetch must not cost the last ten photos.
     setScreensaverMode("fallback");
   }
 
@@ -2568,13 +2637,211 @@
     });
   }
 
-  function startSlideshow() {
+  function scheduleSlideshow() {
     window.clearInterval(slideshowTimer);
-    loadScreensaverImage();
     slideshowTimer = window.setInterval(
-      loadScreensaverImage,
+      showNextScreensaverImage,
       Math.max((config.image_duration_seconds || 15) * 1000, 5000),
     );
+  }
+
+  function startSlideshow() {
+    showNextScreensaverImage();
+    scheduleSlideshow();
+  }
+
+  // Ticket #13: a swipe pages and restarts the interval, so the photo just
+  // chosen gets its full duration. ``slideshowTimer`` is null at night (and
+  // when the screensaver is down), which is exactly when there is nothing to
+  // page.
+  function stepScreensaverImage(direction) {
+    if (!screensaverActive || slideshowTimer === null) {
+      return;
+    }
+    // Nothing older to show: leave the interval alone, or repeated swipes at
+    // the start of the history would hold the current photo forever.
+    if (direction < 0 && screensaverHistoryIndex <= 0) {
+      return;
+    }
+    scheduleSlideshow();
+    if (direction > 0) {
+      showNextScreensaverImage();
+    } else {
+      showPreviousScreensaverImage();
+    }
+  }
+
+  // ---- Screensaver gestures (Ticket #13) ---------------------------------
+  // A tap on the photos does nothing: a horizontal swipe pages them, and a
+  // touch on the clock (or a double tap anywhere) wakes the panel. Night is
+  // the exception — any touch wakes there. The wake
+  // fires on touch-down — the same moment the old single tap did — so
+  // whatever click the engine synthesises afterwards behaves as before.
+  // Family locking as in beginSwipe: WPE may emit Pointer and Touch events
+  // for one touch.
+  const DOUBLE_TAP_MS = 450;
+  const DOUBLE_TAP_SLOP = 48;
+  const TAP_SLOP = 24;
+  // The clock's hit area reaches this far past its box — the photo-mode
+  // clock sits in a corner and should not need aiming on a wall panel.
+  const CLOCK_HIT_SLOP = 32;
+  // The wake fires on touch-down, so the click the engine synthesises after
+  // the lift lands on whatever the dashboard has under the finger — the
+  // fallback flip clock sits right over #watch-face. Swallowed once by a
+  // window capture handler; the deadline is the backstop for engines that
+  // emit no click (a long press).
+  const WAKE_CLICK_SUPPRESS_MS = 700;
+  let suppressWakeClickUntil = 0;
+  let screensaverGesture = null;
+  let screensaverLastTap = null;
+
+  function wakeFromScreensaver() {
+    screensaverGesture = null;
+    screensaverLastTap = null;
+    suppressWakeClickUntil = performance.now() + WAKE_CLICK_SUPPRESS_MS;
+    exitScreensaver();
+  }
+
+  function swallowWakeClick(event) {
+    if (performance.now() < suppressWakeClickUntil) {
+      suppressWakeClickUntil = 0;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }
+
+  // Geometry, not event.target: .screensaver__info is pointer-events: none
+  // so it never sits between the finger and the gesture handler. The hidden
+  // variant of the two clocks is display: none and has an empty rect.
+  function pointIsOnScreensaverClock(x, y) {
+    return [nodes.screensaverInfo, nodes.screensaverClock].some((el) => {
+      const rect = el.getBoundingClientRect();
+      return (
+        rect.width > 0 &&
+        x >= rect.left - CLOCK_HIT_SLOP &&
+        x <= rect.right + CLOCK_HIT_SLOP &&
+        y >= rect.top - CLOCK_HIT_SLOP &&
+        y <= rect.bottom + CLOCK_HIT_SLOP
+      );
+    });
+  }
+
+  function beginScreensaverGesture(source, id, x, y) {
+    if (!screensaverActive) {
+      return;
+    }
+    if (screensaverGesture && screensaverGesture.source !== source) {
+      return; // another family already owns this touch
+    }
+    // At night there are no photos to page, so any touch wakes, as before.
+    // Same for mode "" — the first photo is not painted yet (or failed to
+    // decode) and neither clock is visible, so there is nothing to aim at.
+    if (
+      screensaverMode === "night" ||
+      screensaverMode === "" ||
+      pointIsOnScreensaverClock(x, y)
+    ) {
+      wakeFromScreensaver();
+      return;
+    }
+    const now = performance.now();
+    const lastTap = screensaverLastTap;
+    if (
+      lastTap &&
+      lastTap.source === source &&
+      now - lastTap.at <= DOUBLE_TAP_MS &&
+      Math.abs(x - lastTap.x) <= DOUBLE_TAP_SLOP &&
+      Math.abs(y - lastTap.y) <= DOUBLE_TAP_SLOP
+    ) {
+      wakeFromScreensaver();
+      return;
+    }
+    screensaverGesture = { source, id, x, y, lastX: x, lastY: y, at: now };
+  }
+
+  function trackScreensaverGesture(source, id, x, y) {
+    const gesture = screensaverGesture;
+    if (!gesture || gesture.source !== source || gesture.id !== id) {
+      return;
+    }
+    gesture.lastX = x;
+    gesture.lastY = y;
+  }
+
+  // `x`/`y` are omitted on cancel: a qualified swipe still pages, but a
+  // cancelled touch never counts as the first half of a double tap.
+  function finishScreensaverGesture(source, id, x, y) {
+    const gesture = screensaverGesture;
+    if (!gesture || gesture.source !== source || gesture.id !== id) {
+      return;
+    }
+    screensaverGesture = null;
+    screensaverLastTap = null;
+    const cancelled = typeof x !== "number";
+    const dx = (cancelled ? gesture.lastX : x) - gesture.x;
+    const dy = (cancelled ? gesture.lastY : y) - gesture.y;
+    const now = performance.now();
+    if (now - gesture.at > SWIPE_MAX_MS) {
+      return;
+    }
+    if (Math.abs(dx) >= SWIPE_MIN_X && Math.abs(dx) >= Math.abs(dy) * SWIPE_AXIS_RATIO) {
+      stepScreensaverImage(dx < 0 ? 1 : -1);
+      return;
+    }
+    if (!cancelled && Math.abs(dx) <= TAP_SLOP && Math.abs(dy) <= TAP_SLOP) {
+      screensaverLastTap = { source, x: gesture.x, y: gesture.y, at: now };
+    }
+  }
+
+  function handleScreensaverPointerDown(event) {
+    if (
+      event.isPrimary === false ||
+      (typeof event.button === "number" && event.button !== 0)
+    ) {
+      return;
+    }
+    beginScreensaverGesture("pointer", event.pointerId, event.clientX, event.clientY);
+  }
+
+  function handleScreensaverTouchStart(event) {
+    if (event.touches && event.touches.length > 1) {
+      screensaverGesture = null;
+      screensaverLastTap = null;
+      return;
+    }
+    const touch = touchPoint(event);
+    if (touch) {
+      beginScreensaverGesture("touch", touch.identifier, touch.clientX, touch.clientY);
+    }
+  }
+
+  function bindScreensaverGestures() {
+    const el = nodes.screensaver;
+    const opts = { passive: true };
+    window.addEventListener("click", swallowWakeClick, true);
+    el.addEventListener("pointerdown", handleScreensaverPointerDown, opts);
+    el.addEventListener("pointermove", (event) => {
+      trackScreensaverGesture("pointer", event.pointerId, event.clientX, event.clientY);
+    }, opts);
+    el.addEventListener("pointerup", (event) => {
+      finishScreensaverGesture("pointer", event.pointerId, event.clientX, event.clientY);
+    }, opts);
+    el.addEventListener("pointercancel", (event) => {
+      finishScreensaverGesture("pointer", event.pointerId);
+    }, opts);
+    el.addEventListener("touchstart", handleScreensaverTouchStart, opts);
+    el.addEventListener("touchmove", (event) => {
+      const touch = touchPoint(event);
+      if (touch) trackScreensaverGesture("touch", touch.identifier, touch.clientX, touch.clientY);
+    }, opts);
+    el.addEventListener("touchend", (event) => {
+      const touch = touchPoint(event);
+      if (touch) finishScreensaverGesture("touch", touch.identifier, touch.clientX, touch.clientY);
+    }, opts);
+    el.addEventListener("touchcancel", (event) => {
+      const touch = touchPoint(event);
+      if (touch) finishScreensaverGesture("touch", touch.identifier);
+    }, opts);
   }
 
   function stopSlideshow() {
@@ -2592,6 +2859,7 @@
         slot.classList.remove("is-active");
       });
       activeScreensaverSlot = null;
+      resetScreensaverHistory();
       setScreensaverMode("night");
       return;
     }
@@ -2637,6 +2905,9 @@
     // first frame is current rather than up to 59 s old.
     nodes.screensaverTime.textContent = CLOCK_TIME_FMT.format(new Date());
     screensaverMode = "";
+    screensaverGesture = null;
+    screensaverLastTap = null;
+    resetScreensaverHistory();
     refreshScreensaverPresentation();
     notifyScreensaverState(true);
     window.clearInterval(screensaverHeartbeatTimer);
@@ -2671,9 +2942,13 @@
     );
   }
 
-  function handleActivity() {
+  function handleActivity(event) {
     if (screensaverActive) {
-      exitScreensaver();
+      // Touches belong to the screensaver's own gestures (Ticket #13): a
+      // single tap or a swipe must not wake it. A key still does.
+      if (event && event.type === "keydown") {
+        exitScreensaver();
+      }
       return;
     }
     resetIdleTimer();
@@ -3102,7 +3377,7 @@
       window.addEventListener(eventName, handleActivity, { passive: true });
     });
 
-    nodes.screensaver.addEventListener("pointerdown", exitScreensaver, { passive: true });
+    bindScreensaverGestures();
 
     if (nodes.watchFace) {
       nodes.watchFace.addEventListener("click", (event) => {

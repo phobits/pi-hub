@@ -2126,6 +2126,9 @@ body[data-night="true"] .picker__sheet {
   align-items: center;
   justify-content: center;
   background: #050608;
+  /* Both axes belong to the screensaver's own gestures (swipe pages, double
+     tap wakes); a browser pan would cancel the touch mid-swipe. */
+  touch-action: none;
 }
 
 .screensaver.is-active {
