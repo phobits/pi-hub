@@ -319,10 +319,34 @@ class SpotifyStatesTest(_Fixture):
     def test_rejected_refresh_token_skips_the_boot_grace(self) -> None:
         provider, store, http = self._provider(configured=True)
         provider._access_token = None
-        http.add_response("POST", TOKEN_URL, status=400, body={"error": "invalid_grant"})
+        http.add_response("POST", TOKEN_URL, status=400,
+                          body={"error": "invalid_grant", "error_description": "revoked"})
+        provider.refresh()
+        snapshot = store.get_state().spotify.snapshot
+        self.assertEqual(snapshot.status, "error")
+        # German, not the endpoint's raw JSON.
+        self.assertEqual(snapshot.error_message, "Spotify-Anmeldung abgelaufen.")
+        self.assertIsNone(store.retry_wait("spotify"))
+        # A later outage of the endpoint does not restart the early retry.
+        http.add_response("POST", TOKEN_URL, status=503, body=b"")
+        provider.refresh()
+        self.assertIsNone(store.retry_wait("spotify"))
+
+    def test_400_without_an_oauth_code_stays_transient(self) -> None:
+        # A proxy or captive portal answering 400 is not a revoked token.
+        provider, store, http = self._provider(configured=True)
+        provider._access_token = None
+        http.add_response("POST", TOKEN_URL, status=400, body=b"<html>Login</html>")
+        provider.refresh()
+        self.assertEqual(store.get_state().spotify.snapshot.status, "empty")
+        self.assertEqual(store.retry_wait("spotify"), FIRST_FETCH_RETRY_SECONDS)
+
+    def test_success_with_a_non_object_body_is_an_error(self) -> None:
+        provider, store, http = self._provider(configured=True)
+        http.add_response("GET", PLAYER_URL, status=200, body=b"null")
+        self.past_grace()
         provider.refresh()
         self.assertEqual(store.get_state().spotify.snapshot.status, "error")
-        self.assertIsNone(store.retry_wait("spotify"))
 
     def test_token_endpoint_outage_waits_out_the_boot_grace(self) -> None:
         provider, store, http = self._provider(configured=True)

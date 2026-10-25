@@ -246,9 +246,23 @@ _SPOTIFY_DEFAULT_ERROR = "Spotify nicht erreichbar."
 
 
 class SpotifyAuthRejected(RuntimeError):
-    """The token endpoint refused the refresh token (400/401) — revoked,
+    """The token endpoint refused the refresh token or the client — revoked,
     expired or for another app. Retrying does not help, so the boot grace is
-    skipped (#19); a 5xx there stays an ordinary, transient failure."""
+    skipped (#19). Decided on the OAuth error code, not the status: a 400
+    from a proxy or captive portal stays an ordinary, transient failure."""
+
+
+# RFC 6749 §5.2 codes no retry heals; anything else from the token endpoint
+# (5xx, a 400 without an OAuth body) is treated as transient.
+_OAUTH_PERMANENT_ERRORS = frozenset({"invalid_grant", "invalid_client"})
+
+
+def _oauth_error_code(response: Any) -> str:
+    try:
+        payload = response.json()
+    except Exception:
+        return ""
+    return str(payload.get("error", "")) if isinstance(payload, dict) else ""
 
 
 def spotify_status_message(status: int) -> str:
@@ -302,12 +316,13 @@ class SpotifyProvider(BaseProvider):
             )
         except Exception as exc:
             self.logger.exception("spotify refresh failed")
+            rejected = isinstance(exc, SpotifyAuthRejected)
             self.state_store.mark_error(
                 self.section_name,
-                error_message=str(exc),
+                error_message=spotify_status_message(401) if rejected else str(exc),
                 stale_after_seconds=self.refresh_interval_seconds * 2,
                 source=self.source_name,
-                transient=not isinstance(exc, SpotifyAuthRejected),
+                transient=not rejected,
             )
             return
 
@@ -333,7 +348,7 @@ class SpotifyProvider(BaseProvider):
                 self._access_token = None
             self.state_store.mark_error(
                 self.section_name,
-                error_message="Spotify-Authentifizierung fehlgeschlagen.",
+                error_message=spotify_status_message(401),
                 stale_after_seconds=self.refresh_interval_seconds * 2,
                 source=self.source_name,
             )
@@ -350,6 +365,8 @@ class SpotifyProvider(BaseProvider):
 
         try:
             payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError(f"player payload is {type(payload).__name__}")
         except Exception as exc:
             self.logger.exception("spotify payload parse failed")
             self.state_store.mark_error(
@@ -761,7 +778,7 @@ class SpotifyProvider(BaseProvider):
             if not response.ok:
                 error = (
                     SpotifyAuthRejected
-                    if response.status in (400, 401)
+                    if _oauth_error_code(response) in _OAUTH_PERMANENT_ERRORS
                     else RuntimeError
                 )
                 raise error(

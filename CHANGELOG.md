@@ -11,14 +11,33 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-25
+
+### Behoben
+
+- Spotify: Ein 2xx, dessen Body kein Objekt ist (z. B. `null`), verließ
+  `refresh()` mit einer Exception, und die Kachel blieb still auf `ok`. Jetzt
+  ist das ein Fehler ([#19](https://github.com/phobits/pi-hub/issues/19)).
+- Als dauerhaft abgelehnt gilt ein Spotify-Token nur noch bei OAuth-Code
+  `invalid_grant`/`invalid_client`. Ein 400 von einem Proxy oder Captive Portal
+  bekommt die Boot-Schonfrist. Die Meldung ist deutsch („Spotify-Anmeldung
+  abgelaufen.“) statt des rohen JSON, und ein 401 heißt überall gleich.
+- Nach einem dauerhaften Fehler startet ein späterer vorübergehender Fehler den
+  30-s-Schnellversuch nicht wieder ([#19](https://github.com/phobits/pi-hub/issues/19)).
+
+### Dokumentation
+
+- Prüfbericht `docs/pruefbericht-grundlagen.md` mit Schwellen, Ergebnissen je
+  G-ID, Messartefakten und offenen Punkten (G-04).
+
 ## [0.12.1] - 2026-10-25
 
 ### Behoben
 
 - Eine Spotify-Antwort mit Fehlerstatus und leerem Body (z. B. 503) galt als
   „Keine aktive Wiedergabe“ — der Ausfall blieb stumm. Jetzt ist sie ein Fehler
-  mit der deutschen Meldung; ein 3xx ohne Body ebenso, statt `refresh()` mit
-  einer Exception zu verlassen ([#19](https://github.com/phobits/pi-hub/issues/19)).
+  mit der deutschen Meldung; ein 3xx ohne Body ebenso, der bisher ebenfalls als
+  „Keine aktive Wiedergabe“ galt ([#19](https://github.com/phobits/pi-hub/issues/19)).
 - Fehler, die kein erneuter Versuch heilt — fehlende CalDAV-Abhängigkeit, vom
   Token-Endpoint abgelehnter Spotify-Refresh-Token —, warten die
   Boot-Schonfrist nicht mehr ab und verstecken sich nicht hinter

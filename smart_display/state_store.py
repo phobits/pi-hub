@@ -69,9 +69,10 @@ class StateStore:
         self._cache = DiskCache(config.last_good_path)
         self._monotonic = monotonic or time.monotonic
         self._started_at = self._monotonic()
-        # Sections with a good answer since start, and sections whose every
-        # attempt since start failed — the boot grace is about these, not
-        # about the status rehydrated from disk.
+        # Sections the boot grace no longer covers (a good answer, or a
+        # permanent failure, since start), and sections whose every attempt
+        # since start failed — the grace is about these, not about the status
+        # rehydrated from disk.
         self._answered: set[str] = set()
         self._missed: set[str] = set()
         self._last_persisted_key: Any = None
@@ -126,6 +127,7 @@ class StateStore:
           ``ok``    → ``stale`` (first failure after known-good data)
           ``stale`` → ``error``
           ``error`` → ``error``
+          any       → ``error`` with ``transient=False``, see below
           ``empty``/``disabled`` → ``error`` (#19: the first fetch of a
                        configured source failed — never good data, so it must
                        not hide behind the calm "loading" state)
@@ -134,7 +136,8 @@ class StateStore:
         failures inside FIRST_FETCH_GRACE_SECONDS change nothing but the
         message (``disabled`` becomes ``empty``), and the job retries early —
         see ``retry_wait``. ``transient=False`` marks a failure no retry can
-        fix (missing dependency, rejected credentials): it goes straight to
+        fix (missing CalDAV dependency, Spotify refresh token rejected): it
+        goes straight to
         ``error`` — cached good data included, so it cannot hide behind
         ``stale`` for an interval — and ends any early retry.
 
@@ -150,6 +153,9 @@ class StateStore:
             previous_status = section.snapshot.status
             never_good = previous_status in ("empty", "disabled")
             if not transient:
+                # Ends the grace for this section for good: a later transient
+                # failure must not restart the early retry.
+                self._answered.add(section_name)
                 self._missed.discard(section_name)
                 next_status = "error"
             elif section_name not in self._answered and self._in_grace_locked():
