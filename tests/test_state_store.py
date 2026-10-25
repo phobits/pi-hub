@@ -116,14 +116,21 @@ class StateStoreTest(unittest.TestCase):
 
 
 class MarkErrorStatusMachineTest(unittest.TestCase):
-    """Plan B4: mark_error must respect the ``empty`` status so a not-yet-
-    configured provider does not flip the UI to "Fehler" the moment it is
-    first polled. The ok → stale → error escalation is preserved."""
+    """#19: a failure without any good data is ``error`` — after the boot
+    grace. Inside it the section stays ``empty`` ("wird geladen") so a Pi
+    that starts before its WLAN does not flash an error. The ok → stale →
+    error escalation is preserved."""
 
-    def test_mark_error_keeps_empty_status_when_no_data(self) -> None:
+    def test_first_failure_without_data_waits_out_the_grace(self) -> None:
+        from smart_display.state_store import FIRST_FETCH_GRACE_SECONDS
+        from tests._support import FakeClock
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            store = _make_store(temp_dir)
-            # Fresh store — weather has never received an ok snapshot.
+            clock = FakeClock(monotonic=50.0)
+            config = load_config_from_mapping(
+                {"app": {"data_dir": temp_dir}}, root_dir=Path(temp_dir)
+            )
+            store = StateStore(config, monotonic=clock.monotonic)
             self.assertEqual(store.get_state().weather.snapshot.status, "empty")
 
             store.mark_error(
@@ -132,11 +139,19 @@ class MarkErrorStatusMachineTest(unittest.TestCase):
                 stale_after_seconds=600,
                 source="open-meteo",
             )
-
             snapshot = store.get_state().weather.snapshot
             self.assertEqual(snapshot.status, "empty")
             self.assertEqual(snapshot.error_message, "temporarily unreachable")
             self.assertEqual(snapshot.source, "open-meteo")
+
+            clock.advance(FIRST_FETCH_GRACE_SECONDS)
+            store.mark_error(
+                "weather", error_message="still down", stale_after_seconds=600,
+                source="open-meteo",
+            )
+            snapshot = store.get_state().weather.snapshot
+            self.assertEqual(snapshot.status, "error")
+            self.assertIsNone(snapshot.updated_at)
 
     def test_mark_error_escalates_stale_to_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

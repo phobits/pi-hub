@@ -789,13 +789,21 @@ body[data-watch-face="analog"] .weather__day-min {
 }
 
 .rail {
+  /* A grid item keeps its content width by default — without this a long
+     note pushes the timer chip out of the column instead of ellipsizing. */
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
 }
 
+/* One note at a time (see renderStatusRail). It yields to the timer chip:
+   the chip never shrinks, a long note ends in an ellipsis. */
 .rail__note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 15px;
   font-weight: 500;
   color: var(--ink-3);
@@ -803,6 +811,7 @@ body[data-watch-face="analog"] .weather__day-min {
 }
 
 .rail__dot {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -811,6 +820,7 @@ body[data-watch-face="analog"] .weather__day-min {
 
 .timer-chip {
   appearance: none;
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 8px;

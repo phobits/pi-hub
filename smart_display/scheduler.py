@@ -9,6 +9,9 @@ Plan B2/S3:
 - ``ScheduledJob.pause_group`` lets the frontend ask the scheduler to skip
   one or more job groups (e.g. "spotify" while the screensaver is on). Jobs
   keep rescheduling normally so resuming is instant.
+- ``ScheduledJob.retry_after`` (#19) may shorten the wait after a tick: it is
+  asked after every run and returns seconds, or ``None`` for the interval.
+  Used for the early retries of a failed first fetch.
 - ``Scheduler.trigger(name)`` wakes the named job immediately without waiting
   for its next interval — used by :meth:`set_paused` to do a fresh fetch
   right after resume.
@@ -46,6 +49,7 @@ class ScheduledJob:
     startup_delay_seconds: float = 0.0
     jitter_seconds: float = 0.0
     pause_group: str | None = None
+    retry_after: Callable[[], float | None] | None = None
 
 
 @dataclass
@@ -170,6 +174,14 @@ class Scheduler:
 
     def compute_next_wait(self, job: ScheduledJob) -> float:
         interval = float(job.interval_seconds)
+        if job.retry_after is not None:
+            try:
+                retry = job.retry_after()
+            except Exception:  # pragma: no cover — never let it stop the loop
+                logger.exception("retry_after failed: %s", job.name)
+                retry = None
+            if retry is not None:
+                interval = min(interval, float(retry))
         if job.jitter_seconds > 0:
             interval += self._rng(-float(job.jitter_seconds), float(job.jitter_seconds))
         return max(1.0, interval)

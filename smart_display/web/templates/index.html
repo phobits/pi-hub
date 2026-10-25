@@ -141,8 +141,10 @@
 
           <section class="side" id="cards-column" data-music="hidden" aria-label="Termine und Musik">
             <!-- Status rail: a reserved 36 px row. Timer chip on the right,
-                 "Offline · Stand HH:MM" when a network provider is behind.
-                 Reserved, not collapsible, so nothing below it ever jumps. -->
+                 beside it one note: "Anzeige wird aktualisiert" when the local
+                 poll is failing, else "Termine · gestern 15:10" (no "Stand" —
+                 it has to fit beside the chip) for a behind calendar. Reserved, not collapsible, so nothing below it
+                 ever jumps. -->
             <div class="rail" id="status-rail">
               <span class="rail__note is-hidden" id="status-note"></span>
               <span class="rail__dot is-hidden" id="status-dot" aria-hidden="true"></span>

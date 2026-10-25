@@ -280,7 +280,7 @@ class SpotifyProvider(BaseProvider):
             self.state_store.update_section(
                 self.section_name,
                 SpotifyState(
-                    snapshot=self.snapshot(status="empty"),
+                    snapshot=self.snapshot(status="disabled"),
                     empty_message="Spotify nicht verbunden.",
                 ),
             )
@@ -308,7 +308,7 @@ class SpotifyProvider(BaseProvider):
             self.state_store.update_section(
                 self.section_name,
                 SpotifyState(
-                    snapshot=self.snapshot(status="empty"),
+                    snapshot=self.snapshot(status="ok"),
                     connected=True,
                     empty_message="Keine aktive Wiedergabe.",
                 ),

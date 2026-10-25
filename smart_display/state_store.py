@@ -33,6 +33,17 @@ logger = logging.getLogger(__name__)
 PERSIST_MIN_INTERVAL_SECONDS = 300.0
 VOLATILE_KEYS = frozenset({"progress_ms", "generated_at", "updated_at"})
 
+# #19: a failed first fetch is an error — but not in the first minutes after
+# start, when WLAN or DNS may simply not be up yet. Until FIRST_FETCH_GRACE
+# has passed, a section that has not had one good fetch *in this process*
+# keeps the status it booted with (a fresh one stays ``empty``, "wird
+# geladen"; one rehydrated from last_good.json stays as it was), and its job
+# retries every FIRST_FETCH_RETRY instead of waiting its regular interval
+# (15 min for weather). So the panel shows fresh data or an honest age/"nicht
+# verfügbar" at most ~3.5 min after start, and a boot never flashes an error.
+FIRST_FETCH_GRACE_SECONDS = 180.0
+FIRST_FETCH_RETRY_SECONDS = 30.0
+
 
 def _strip_volatile(value: Any) -> Any:
     if isinstance(value, dict):
@@ -57,6 +68,12 @@ class StateStore:
         self._lock = threading.Lock()
         self._cache = DiskCache(config.last_good_path)
         self._monotonic = monotonic or time.monotonic
+        self._started_at = self._monotonic()
+        # Sections with a good answer since start, and sections whose every
+        # attempt since start failed — the boot grace is about these, not
+        # about the status rehydrated from disk.
+        self._answered: set[str] = set()
+        self._missed: set[str] = set()
         self._last_persisted_key: Any = None
         self._last_persisted_at: float = float("-inf")
         self._dirty = False
@@ -85,9 +102,14 @@ class StateStore:
     ) -> None:
         with self._lock:
             setattr(self._state, section_name, section)
+            self._answered.add(section_name)
+            self._missed.discard(section_name)
             self._state.system.generated_at = utcnow_iso()
             self._provider_health[section_name] = replace(section.snapshot)
             self._persist_locked()
+
+    def _in_grace_locked(self) -> bool:
+        return self._monotonic() - self._started_at < FIRST_FETCH_GRACE_SECONDS
 
     def mark_error(
         self,
@@ -99,26 +121,39 @@ class StateStore:
     ) -> None:
         """Record a provider fetch failure.
 
-        Status transitions (Plan B4):
+        Status transitions:
           ``ok``    → ``stale`` (first failure after known-good data)
           ``stale`` → ``error``
           ``error`` → ``error``
-          ``empty`` → ``empty`` (no prior data — the UI keeps showing "Leer"
-                       rather than flipping to "Fehler" the moment a not-yet-
-                       configured provider is first polled)
+          ``empty``/``disabled`` → ``error`` (#19: the first fetch of a
+                       configured source failed — never good data, so it must
+                       not hide behind the calm "loading" state)
 
-        In every case the error message and source are refreshed so ops and
-        the /health endpoint can see the latest attempt.
+        Boot grace: until a section has had one good answer in this process,
+        failures inside FIRST_FETCH_GRACE_SECONDS change nothing but the
+        message (``disabled`` becomes ``empty``), and the job retries early —
+        see ``retry_wait``.
+
+        ``updated_at`` stays the time of the last good fetch. Coming from
+        ``empty``/``disabled`` there was none — a ``disabled`` snapshot (a
+        source set up since the last run) carries the stamp of its "not set
+        up" answer, so it is cleared rather than shown as a past success. The
+        error message and source are refreshed so ops and /health see the
+        latest attempt.
         """
         with self._lock:
             section = getattr(self._state, section_name)
             previous_status = section.snapshot.status
-            if previous_status == "empty":
-                next_status = "empty"
+            never_good = previous_status in ("empty", "disabled")
+            if section_name not in self._answered and self._in_grace_locked():
+                self._missed.add(section_name)
+                next_status = "empty" if never_good else previous_status
             elif previous_status == "ok":
                 next_status = "stale"
             else:
                 next_status = "error"
+            if never_good:
+                section.snapshot.updated_at = None
             section.snapshot.status = next_status
             section.snapshot.error_message = error_message
             section.snapshot.stale_after_seconds = stale_after_seconds
@@ -126,6 +161,20 @@ class StateStore:
             self._state.system.generated_at = utcnow_iso()
             self._provider_health[section_name] = replace(section.snapshot)
             self._persist_locked()
+
+    def retry_wait(self, section_name: str) -> float | None:
+        """Early retry while a section has only failed since start and the
+        grace window is open; ``None`` = regular interval. The first failure
+        after the grace applies the normal transitions, and the job falls back
+        to its own cadence."""
+        with self._lock:
+            if (
+                section_name in self._missed
+                and section_name not in self._answered
+                and self._in_grace_locked()
+            ):
+                return FIRST_FETCH_RETRY_SECONDS
+            return None
 
     def set_provider_snapshot(self, name: str, snapshot: ProviderSnapshot) -> None:
         with self._lock:
@@ -223,6 +272,15 @@ class StateStore:
                 )
                 self._quarantine_cache()
             else:
+                # #19: before v0.12 ``empty`` also meant "fetched, nothing in
+                # it" and "not set up", both with an updated_at. Today it means
+                # "never fetched", so a carried-over stamp would invent a past
+                # success the moment the first fetch fails. The providers
+                # re-report on their first tick.
+                for section in (state.weather, state.calendar, state.spotify):
+                    if section.snapshot.status == "empty":
+                        section.snapshot.updated_at = None
+                        section.snapshot.error_message = None
                 state.system.locale = self.config.app.locale
                 state.system.timezone = self.config.app.timezone
                 state.system.idle_timeout_seconds = (

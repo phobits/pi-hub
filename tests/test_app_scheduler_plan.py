@@ -137,3 +137,37 @@ class SchedulerPlanTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FirstFetchRetryWiringTest(unittest.TestCase):
+    """#19: the three provider jobs ask the store for an early retry; the
+    screensaver and mock jobs have no first-fetch grace and do not."""
+
+    def test_provider_jobs_ask_retry_wait_for_their_own_section(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config = make_app_config(
+                Path(temp_dir),
+                weather_enabled=True,
+                calendar_enabled=True,
+                spotify_enabled=True,
+                spotify_client_id="id",
+                spotify_client_secret="secret",
+                spotify_refresh_token="token",
+            )
+            config.calendar = replace(
+                config.calendar, url="https://dav.example", username="u", password="p"
+            )
+            asked: list[str] = []
+            jobs = _build_scheduled_jobs(
+                config,
+                weather_refresh=_noop,
+                calendar_refresh=_noop,
+                spotify_refresh=_noop,
+                screensaver_refresh=_noop,
+                mock_refresh=_noop,
+                retry_wait=lambda section: asked.append(section) or 30.0,
+            )
+            by_name = {job.name: job for job in jobs}
+            for name in ("weather", "calendar", "spotify"):
+                self.assertEqual(by_name[name].retry_after(), 30.0)
+            self.assertEqual(asked, ["weather", "calendar", "spotify"])

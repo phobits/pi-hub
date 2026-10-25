@@ -35,6 +35,22 @@
   // expires and Spotify polling resumes on its own.
   let screensaverHeartbeatTimer = null;
   const SCREENSAVER_HEARTBEAT_MS = 5 * 60 * 1000;
+  // #18: the state poll is the only way provider errors reach the panel, so a
+  // dead backend must not look like calm, current data. A request is aborted
+  // after STATE_REQUEST_TIMEOUT_MS (the chain never waits on a hung socket),
+  // and once no poll has succeeded for LOCAL_STALE_POLLS intervals — at least
+  // LOCAL_STALE_MIN_MS — the status rail says "Anzeige wird aktualisiert".
+  // Measured with performance.now(), so an NTP step cannot fake an outage.
+  const POLL_INTERVAL_MS = Math.max((config.poll_interval_seconds || 15) * 1000, 5000);
+  const STATE_REQUEST_TIMEOUT_MS = 10_000;
+  const LOCAL_STALE_POLLS = 3;
+  const LOCAL_STALE_MIN_MS = 30_000;
+  const LOCAL_STALE_AFTER_MS = Math.max(LOCAL_STALE_POLLS * POLL_INTERVAL_MS, LOCAL_STALE_MIN_MS);
+  let stateRequest = null;
+  // Start of the current outage window: the last good poll, or the moment
+  // polling resumed after the screensaver. The page itself arrived with state.
+  let stateWatchFrom = performance.now();
+  let localLinkLost = false;
 
   // Cached Intl formatters. Re-creating them per tick burns measurable CPU
   // on a Pi Zero 2 W; see plan B5. The weekday formatter drives the client-
@@ -49,6 +65,27 @@
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    timeZone: TIMEZONE,
+  });
+  // Time of day in TIMEZONE, for finding its midnight (#20).
+  const ZONE_CLOCK_FMT = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: TIMEZONE,
+  });
+  // #20: "Stand 12. Okt. 15:10" for data older than yesterday; the year only
+  // when it is not this year's.
+  const AGE_DATE_FMT = new Intl.DateTimeFormat(LOCALE, {
+    day: "numeric",
+    month: "short",
+    timeZone: TIMEZONE,
+  });
+  const AGE_DATE_YEAR_FMT = new Intl.DateTimeFormat(LOCALE, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
     timeZone: TIMEZONE,
   });
   // Plan B5: the old updateClock allocated three Intl formatters per second
@@ -706,7 +743,7 @@
     weatherForecast: document.getElementById("weather-forecast"),
     calendarList: document.getElementById("calendar-list"),
     cardsColumn: document.getElementById("cards-column"),
-    // Status rail: "Offline · Stand HH:MM" when a network provider is behind.
+    // Status rail: one note — local link lost, else the calendar's age.
     statusNote: document.getElementById("status-note"),
     statusDot: document.getElementById("status-dot"),
     // Home tile is display-only — it has no status pill, no device badge, no
@@ -1108,17 +1145,35 @@
     }, delay);
   }
 
-  // "HH:MM" in the panel's zone for a provider's updated_at, or "" when the
-  // snapshot has never been good. Used by every "Stand HH:MM" caption.
-  function formatStamp(isoString) {
-    if (typeof isoString !== "string" || !isoString) {
+  // Age of a provider's updated_at (the last good fetch) in the panel's zone:
+  // "15:10" today, "gestern 15:10", "12. Okt. 15:10", "12. Okt. 2025 15:10" in
+  // another year. Day boundaries are calendar days in TIMEZONE, not 24 h, so
+  // DST days stay right. "" for a missing or unparsable stamp — never a time
+  // that only looks correct. Midnight re-renders through
+  // scheduleMidnightRerender, so "gestern" needs no timer of its own (#20).
+  // `compact` lets the year replace the time — the status rail shares its
+  // 328 px with the timer chip, which leaves ~180 px for the note (measured,
+  // WebKit and Chromium), and "Termine · 30. Dez. 2025 14:10" needs 214.
+  function formatStamp(isoString, { compact = false } = {}) {
+    const ms = parseIsoMs(isoString);
+    if (ms === null) {
       return "";
     }
-    const ms = Date.parse(isoString);
-    if (!Number.isFinite(ms)) {
-      return "";
+    const time = CLOCK_TIME_FMT.format(new Date(ms));
+    const day = SECTION_DATE_FMT.format(new Date(ms));
+    const today = SECTION_DATE_FMT.format(new Date());
+    if (day === today) {
+      return time;
     }
-    return CLOCK_TIME_FMT.format(new Date(ms));
+    const [y, m, d] = today.split("-").map(Number);
+    if (day === new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)) {
+      return `gestern ${time}`;
+    }
+    if (day.slice(0, 4) === today.slice(0, 4)) {
+      return `${AGE_DATE_FMT.format(new Date(ms))} ${time}`;
+    }
+    const date = AGE_DATE_YEAR_FMT.format(new Date(ms));
+    return compact ? date : `${date} ${time}`;
   }
 
   function isBehind(snapshot) {
@@ -1126,25 +1181,29 @@
     return status === "stale" || status === "error";
   }
 
-  // Status rail (top of the right column). One line, only when a network
-  // provider is behind: "Offline · Stand HH:MM" with the oldest known-good
-  // time among them. Spotify reports in its own bar, not here.
+  // Status rail (top of the right column, 36 px). Precedence (#20): the
+  // timer chip always shows — it is live and tappable — and the one note
+  // beside it is the lost local link (#18) if there is one, else the
+  // calendar's age ("Termine · gestern 15:10" — the source is the prefix, so
+  // "Stand" is left out to fit beside the chip). Weather states its age in its
+  // own line and Spotify in the
+  // music bar, so one failing source never reads as "the device is offline".
+  // A calendar that never loaded says so in the agenda, not here.
   function renderStatusRail() {
-    const behind = [state.weather, state.calendar]
-      .map((section) => (section && section.snapshot) || {})
-      .filter(isBehind);
-    const hidden = behind.length === 0;
+    let note = "";
+    if (localLinkLost) {
+      note = "Anzeige wird aktualisiert";
+    } else {
+      const snapshot = (state.calendar && state.calendar.snapshot) || {};
+      const age = isBehind(snapshot) ? formatStamp(snapshot.updated_at, { compact: true }) : "";
+      note = age ? `Termine · ${age}` : "";
+    }
+    const hidden = note === "";
     nodes.statusNote.classList.toggle("is-hidden", hidden);
     nodes.statusDot.classList.toggle("is-hidden", hidden);
-    if (hidden) {
-      return;
+    if (nodes.statusNote.textContent !== note) {
+      nodes.statusNote.textContent = note;
     }
-    const stamps = behind
-      .map((snapshot) => Date.parse(snapshot.updated_at || ""))
-      .filter((ms) => Number.isFinite(ms));
-    const oldest = stamps.length ? Math.min(...stamps) : null;
-    nodes.statusNote.textContent =
-      oldest === null ? "Offline" : `Offline · Stand ${CLOCK_TIME_FMT.format(new Date(oldest))}`;
   }
 
   function renderWeather(weather) {
@@ -1154,7 +1213,9 @@
       ? `${Math.round(weather.temperature_c)}°`
       : "–";
     setIcon(nodes.weatherIcon, hasTemperature ? weatherIconName(weather.condition_code) : "");
-    if (weather.condition) {
+    if (snapshot.status === "disabled") {
+      nodes.weatherCondition.textContent = "Wetter nicht eingerichtet";
+    } else if (weather.condition) {
       nodes.weatherCondition.textContent = weather.condition;
     } else if (snapshot.status === "empty" || !snapshot.status) {
       nodes.weatherCondition.textContent = "Wetterdaten werden geladen.";
@@ -1165,13 +1226,17 @@
       typeof weather.apparent_temperature_c === "number"
         ? `Gefühlt ${Math.round(weather.apparent_temperature_c)}°`
         : "";
-    nodes.weatherLocation.textContent = weather.location_label || "";
-    // Age instead of a badge: the reader wants to know how old "14°" is.
+    // Age instead of a badge: the reader wants to know how old "14°" is. It
+    // takes the place name's room — the place never changes, and a days-old
+    // "Stand 30. Dez. 2025 14:10" would otherwise lose its time to the ellipsis.
     const stamp = isBehind(snapshot) ? formatStamp(snapshot.updated_at) : "";
     nodes.weatherStamp.textContent = stamp ? `Stand ${stamp}` : "";
+    nodes.weatherLocation.textContent = stamp ? "" : weather.location_label || "";
 
     // Ticket #2: screensaver overlay gets temperature + condition, nothing else.
-    const screensaverWeather = hasTemperature
+    // Behind data is left out there (#20): the overlay has no room for an age,
+    // and a bare "14°" from yesterday reads as now.
+    const screensaverWeather = hasTemperature && !isBehind(snapshot)
       ? `${Math.round(weather.temperature_c)}°${weather.condition ? ` · ${weather.condition}` : ""}`
       : "";
     nodes.screensaverWeather.textContent = screensaverWeather;
@@ -1276,6 +1341,28 @@
       empty.appendChild(sub);
     }
     return empty;
+  }
+
+  // An agenda without sections (#19). Only a fetch that succeeded empty — now
+  // or as the last good answer behind a stale snapshot, whose age the rail
+  // shows — says "Keine Termine". Everything else says what it is.
+  function createCalendarPlaceholder(snapshot, nowMs) {
+    const status = snapshot.status;
+    if (status === "disabled") {
+      return createCalendarEmpty("Kalender nicht eingerichtet", "");
+    }
+    const hadGoodData = parseIsoMs(snapshot.updated_at) !== null;
+    if (status === "ok" || (isBehind(snapshot) && hadGoodData)) {
+      const dayAfter = new Date(nowMs + 2 * 24 * 60 * 60 * 1000);
+      return createCalendarEmpty(
+        "Keine Termine",
+        `Auch morgen und ${WEEKDAY_FMT.format(dayAfter)} ist nichts eingetragen.`,
+      );
+    }
+    if (isBehind(snapshot)) {
+      return createCalendarEmpty("Termine nicht verfügbar", "");
+    }
+    return createCalendarEmpty("Termine werden geladen", "");
   }
 
   function parseIsoMs(value) {
@@ -1479,12 +1566,7 @@
     calendarRelativeLabel = "";
 
     if (sections.length === 0) {
-      const dayAfter = new Date(nowMs + 2 * 24 * 60 * 60 * 1000);
-      const subtitle =
-        snapshot.status === "empty" || !snapshot.status
-          ? ""
-          : `Auch morgen und ${WEEKDAY_FMT.format(dayAfter)} ist nichts eingetragen.`;
-      nodes.calendarList.appendChild(createCalendarEmpty("Keine Termine", subtitle));
+      nodes.calendarList.appendChild(createCalendarPlaceholder(snapshot, nowMs));
       return;
     }
 
@@ -1673,13 +1755,12 @@
       (musicMode === "error" ? "Spotify nicht erreichbar." : "Spotify nicht verbunden.");
     // The home bar doubles as the "start playing" entry point, so with nothing
     // playing it invites instead of reporting. An outage says how old the last
-    // good state is rather than quoting the HTTP error.
+    // good state is rather than quoting the HTTP error — on its own line, so a
+    // days-old "zuletzt 15. Okt. 15:10" is never cut off mid-time (#20).
     if (musicMode === "error") {
       const stamp = formatStamp(snapshot.updated_at);
-      nodes.spotifyTrack.textContent = "Spotify";
-      nodes.spotifyArtist.textContent = stamp
-        ? `Nicht erreichbar · zuletzt ${stamp}`
-        : "Nicht erreichbar";
+      nodes.spotifyTrack.textContent = "Spotify nicht erreichbar";
+      nodes.spotifyArtist.textContent = stamp ? `zuletzt ${stamp}` : "";
     } else if (musicMode === "playing") {
       nodes.spotifyTrack.textContent = spotify.track_title;
       nodes.spotifyArtist.textContent = [spotify.artist_name, spotify.device_name]
@@ -1832,40 +1913,109 @@
     nodes.clockSyncHint.classList.toggle("is-hidden", synced);
   }
 
+  // Midnight in TIMEZONE, not in the browser's own zone — day labels and the
+  // "gestern" of every age are computed there (#20). The wait is capped at an
+  // hour and the render keyed on the date, so a 23- or 25-hour DST day cannot
+  // shift it: the timer re-arms, and only a new date costs a render.
+  let midnightDayKey = "";
+
   function scheduleMidnightRerender() {
     window.clearTimeout(midnightTimer);
     const now = new Date();
-    const nextMidnight = new Date(now);
-    nextMidnight.setHours(24, 0, 2, 0); // 2s slack so we land safely past the boundary
-    const delayMs = Math.max(nextMidnight.getTime() - now.getTime(), 1000);
+    if (!midnightDayKey) {
+      midnightDayKey = todayIsoInZone();
+    }
+    const [h, m, s] = ZONE_CLOCK_FMT.format(now).split(":").map(Number);
+    const msIntoDay = ((h * 60 + m) * 60 + s) * 1000 + now.getMilliseconds();
+    // 2 s slack so we land safely past the boundary.
+    const delayMs = Math.min(Math.max(86_400_000 - msIntoDay + 2000, 1000), 3_600_000);
     midnightTimer = window.setTimeout(() => {
-      render(state, { force: true });
+      const today = todayIsoInZone();
+      if (today !== midnightDayKey) {
+        midnightDayKey = today;
+        render(state, { force: true });
+      }
       scheduleMidnightRerender();
     }, delayMs);
   }
 
-  async function fetchState() {
+  function isStatePayload(payload) {
+    return Boolean(payload) && typeof payload === "object" &&
+      ["weather", "calendar", "spotify", "system"].every(
+        (key) => Boolean(payload[key]) && typeof payload[key] === "object",
+      );
+  }
+
+  // #18: success is a 304 or a 200 with a usable payload; HTTP errors, network
+  // errors, the timeout and garbage are not. The hint clears on the next
+  // success — provider errors in that state are rendered as usual.
+  function noteStateContact(ok) {
+    const now = performance.now();
+    if (ok) {
+      stateWatchFrom = now;
+    }
+    const lost = !ok && now - stateWatchFrom >= LOCAL_STALE_AFTER_MS;
+    if (lost !== localLinkLost) {
+      localLinkLost = lost;
+      renderStatusRail();
+    }
+  }
+
+  // One request at a time: the poll and exitScreensaver share it instead of
+  // racing two responses into render().
+  function fetchState() {
+    if (!stateRequest) {
+      stateRequest = requestState().finally(() => {
+        stateRequest = null;
+      });
+    }
+    return stateRequest;
+  }
+
+  async function requestState() {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), STATE_REQUEST_TIMEOUT_MS);
+    let payload = null;
+    let nextEtag = "";
     try {
       const headers = stateEtag ? { "If-None-Match": stateEtag } : {};
       const response = await fetch("/api/state", {
         cache: "no-store",
         headers,
+        signal: controller.signal,
       });
-      if (response.status === 304) {
-        return;
+      if (response.status !== 304) {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        // Still under the timeout: abort() also cancels a stalled body.
+        nextEtag = response.headers.get("ETag") || "";
+        payload = await response.json();
+        if (!isStatePayload(payload)) {
+          throw new Error("invalid state payload");
+        }
       }
-      if (!response.ok) {
-        return;
-      }
-      const payload = await response.json();
-      const nextEtag = response.headers.get("ETag");
-      if (nextEtag) {
-        stateEtag = nextEtag;
-      }
-      render(payload);
     } catch (error) {
       window.console.debug("state refresh failed", error);
+      noteStateContact(false);
+      return;
+    } finally {
+      window.clearTimeout(timeout);
     }
+    noteStateContact(true);
+    if (payload === null) {
+      return;
+    }
+    try {
+      render(payload);
+    } catch (error) {
+      // A render bug is not a lost link, and must not end the poll chain. The
+      // ETag is kept back, so the next poll gets a 200 and renders again
+      // instead of a 304 that leaves the half-written DOM standing.
+      window.console.error("state render failed", error);
+      return;
+    }
+    stateEtag = nextEtag || stateEtag;
   }
 
   function schedulePolling() {
@@ -1875,7 +2025,7 @@
         await fetchState();
       }
       schedulePolling();
-    }, Math.max((config.poll_interval_seconds || 15) * 1000, 5000));
+    }, POLL_INTERVAL_MS);
   }
 
   // One shape for every control endpoint ({ok, message, state?, timers?}),
@@ -2897,6 +3047,11 @@
     notifyScreensaverState(false);
     updateClock();
     applyWatchFace(document.body.getAttribute("data-watch-face") || "flip");
+    // The pause was deliberate, not missed polls (#18): count from now. An
+    // outage that was already showing keeps its hint until a poll succeeds.
+    if (!localLinkLost) {
+      stateWatchFrom = performance.now();
+    }
     fetchState();
   }
 

@@ -60,6 +60,29 @@ class ComputeWaitTest(unittest.TestCase):
         )
         self.assertEqual(scheduler.compute_next_wait(job), 1.0)
 
+    def test_retry_after_shortens_the_wait_only_while_it_asks(self) -> None:
+        # #19: a failed first fetch retries early, then the interval resumes.
+        scheduler = Scheduler(rng=lambda a, b: 0.0)
+        answers = [30.0, None]
+        job = ScheduledJob(
+            name="weather",
+            interval_seconds=900,
+            task=lambda: None,
+            retry_after=lambda: answers.pop(0),
+        )
+        self.assertEqual(scheduler.compute_next_wait(job), 30.0)
+        self.assertEqual(scheduler.compute_next_wait(job), 900.0)
+
+    def test_retry_after_never_lengthens_the_interval(self) -> None:
+        scheduler = Scheduler(rng=lambda a, b: 0.0)
+        job = ScheduledJob(
+            name="spotify",
+            interval_seconds=15,
+            task=lambda: None,
+            retry_after=lambda: 30.0,
+        )
+        self.assertEqual(scheduler.compute_next_wait(job), 15.0)
+
     def test_startup_delays_are_staggered_across_jobs(self) -> None:
         """With rng=0 the initial wait equals the declared startup delay."""
         scheduler = Scheduler(rng=lambda a, b: 0.0)

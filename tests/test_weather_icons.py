@@ -237,9 +237,9 @@ class OpenMeteoHttpClientRefreshTest(unittest.TestCase):
         provider = OpenMeteoProvider(self.config, self.store, http_client=self.http)
         provider.refresh()
         snapshot = self.store.get_state().weather.snapshot
-        # Plan B4: a fresh store starts in ``empty``, which mark_error keeps
-        # as ``empty``. The error_message is still populated so the UI can
-        # surface the reason.
+        # #19: a fresh store starts in ``empty``; inside the boot grace a
+        # failure keeps it there, afterwards it is ``error``. The
+        # error_message is populated either way.
         self.assertIn(snapshot.status, {"empty", "error"})
         self.assertIn("connection refused", snapshot.error_message or "")
 

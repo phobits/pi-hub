@@ -35,7 +35,7 @@ python -m smart_display.local_server   # :8090, demo data, own data dir
 
 `APP_DEMO_MODE=true` runs the first entrypoint without accounts; `.env.local` (see `.env.local.example`) overrides `.env` for the demo server.
 
-Checks: `python3 -m compileall smart_display tests` and `python3 -m unittest discover -s tests`. Against the demo server (Playwright): `scripts/screenshot-states.py OUT_DIR` renders every state, `scripts/take-screenshots.sh` the images above, `scripts/check-gestures.py [--self-test]` the touch gestures in WebKit and Chromium. Neither engine is the device's WPE build, so none of this replaces a look at the panel.
+Checks: `python3 -m compileall smart_display tests` and `python3 -m unittest discover -s tests`. Against the demo server (Playwright): `scripts/screenshot-states.py OUT_DIR` renders every state, `scripts/take-screenshots.sh` the images above, `scripts/check-gestures.py [--self-test]` the touch gestures in WebKit and Chromium, `scripts/check-freshness.py [--self-test]` the lost-backend hint and the data-age labels. Neither engine is the device's WPE build, so none of this replaces a look at the panel.
 
 ## Configuration
 

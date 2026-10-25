@@ -155,8 +155,8 @@ class CalDAVProvider(BaseProvider):
             self.state_store.update_section(
                 self.section_name,
                 CalendarState(
-                    snapshot=self.snapshot(status="empty"),
-                    empty_message="Kalender nicht verbunden.",
+                    snapshot=self.snapshot(status="disabled"),
+                    empty_message="Kalender nicht eingerichtet.",
                 ),
             )
             return
@@ -209,7 +209,9 @@ class CalDAVProvider(BaseProvider):
             base_date=start.date(),
             days=3,
         )
-        snapshot = self.snapshot(status="ok" if items else "empty")
+        # An empty answer is a successful fetch (#19): it replaces old events
+        # and is the only state that may read "Keine Termine".
+        snapshot = self.snapshot(status="ok")
         state = CalendarState(
             snapshot=snapshot,
             items=items,

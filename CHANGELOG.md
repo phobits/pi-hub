@@ -11,6 +11,48 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-25
+
+### Hinzugefügt
+
+- Erreicht der Browser den lokalen Dienst nicht mehr, steht nach drei verpassten
+  Abfragen (mindestens 30 s) „Anzeige wird aktualisiert“ in der Statusleiste; gute
+  Daten bleiben stehen, der Hinweis verschwindet beim nächsten Erfolg. Jede
+  State-Abfrage bricht nach 10 s ab, es läuft immer nur eine. Screensaver-Pause
+  und NTP-Sprünge lösen keinen Fehlalarm aus
+  ([#18](https://github.com/phobits/pi-hub/issues/18)).
+- `scripts/check-freshness.py`: prüft Verbindungshinweis, Datenalter und
+  Leerzustände in WebKit und Chromium mit `page.clock`; `--self-test` verlangt,
+  dass das `app.js` von v0.11.4 an jedem positiven Fall scheitert
+  ([#18](https://github.com/phobits/pi-hub/issues/18),
+  [#20](https://github.com/phobits/pi-hub/issues/20)).
+
+### Geändert
+
+- Das Datenalter nennt den Tag: „Stand 15:10“, „Stand gestern 15:10“, „Stand
+  12. Okt. 15:10“, aus einem anderen Jahr mit Jahreszahl, in Kalendertagen der
+  konfigurierten Zeitzone. Jede Quelle meldet sich an ihrer Stelle — Wetter in
+  seiner Zeile, Termine als „Termine · …“ in der Statusleiste, Spotify als
+  „Spotify nicht erreichbar / zuletzt …“ —, statt eines pauschalen „Offline“. Der
+  Foto-Screensaver lässt veraltetes Wetter weg. Mitternacht zählt in der
+  konfigurierten Zeitzone ([#20](https://github.com/phobits/pi-hub/issues/20)).
+- Statusleiste: der Timer-Chip steht immer, daneben genau ein Hinweis
+  (lokaler Verbindungshinweis vor Kalenderalter), der mit Ellipse kürzt
+  ([#20](https://github.com/phobits/pi-hub/issues/20)).
+
+### Behoben
+
+- „Keine Termine“ steht nur noch bei einem erfolgreich leeren Kalender. Nicht
+  eingerichtete Quellen melden `disabled` („Kalender nicht eingerichtet“), ein
+  Fehler ohne je gute Daten wird zu `error` („Termine nicht verfügbar“, „Wetter
+  nicht verfügbar“, Musikleiste „nicht erreichbar“ statt still verschwunden).
+  In den ersten 180 s nach dem Start bleibt ein Fehlschlag ohne Erfolg seit dem
+  Start unsichtbar und wird alle 30 s wiederholt — ein Pi, der vor seinem WLAN
+  hochkommt, zeigt keinen Fehler. `last_good.json` aus v0.11 lädt weiter, ohne
+  einen früheren Erfolg zu erfinden ([#19](https://github.com/phobits/pi-hub/issues/19)).
+- Eine lange Statusleisten-Notiz schob den Timer-Chip aus der Spalte
+  ([#20](https://github.com/phobits/pi-hub/issues/20)).
+
 ## [0.11.4] - 2026-10-25
 
 ### Behoben

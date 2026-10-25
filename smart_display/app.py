@@ -75,6 +75,7 @@ def create_app(
             spotify_refresh=spotify_provider.refresh,
             screensaver_refresh=screensaver_provider.refresh,
             mock_refresh=mock_provider.refresh,
+            retry_wait=state_store.retry_wait,
         )
         _seed_unscheduled_provider_state(
             jobs,
@@ -101,6 +102,7 @@ def _build_scheduled_jobs(
     spotify_refresh: Callable[[], None],
     screensaver_refresh: Callable[[], None],
     mock_refresh: Callable[[], None],
+    retry_wait: Callable[[str], float | None] | None = None,
 ) -> list[ScheduledJob]:
     """Return only jobs that have useful periodic work on the Pi.
 
@@ -119,6 +121,7 @@ def _build_scheduled_jobs(
                 name="weather",
                 interval_seconds=config.refresh_intervals.weather_seconds,
                 task=weather_refresh,
+                retry_after=_retry_for(retry_wait, "weather"),
                 startup_delay_seconds=0.0,
                 jitter_seconds=1.0,
             )
@@ -130,6 +133,7 @@ def _build_scheduled_jobs(
                 name="calendar",
                 interval_seconds=config.refresh_intervals.calendar_seconds,
                 task=calendar_refresh,
+                retry_after=_retry_for(retry_wait, "calendar"),
                 startup_delay_seconds=2.0,
                 jitter_seconds=1.0,
             )
@@ -141,6 +145,7 @@ def _build_scheduled_jobs(
                 name="spotify",
                 interval_seconds=config.refresh_intervals.spotify_seconds,
                 task=spotify_refresh,
+                retry_after=_retry_for(retry_wait, "spotify"),
                 startup_delay_seconds=4.0,
                 jitter_seconds=1.0,
                 pause_group="spotify",
@@ -170,6 +175,14 @@ def _build_scheduled_jobs(
         )
 
     return jobs
+
+
+def _retry_for(
+    retry_wait: Callable[[str], float | None] | None, section: str
+) -> Callable[[], float | None] | None:
+    if retry_wait is None:
+        return None
+    return lambda: retry_wait(section)
 
 
 def _calendar_has_credentials(config: AppConfig) -> bool:

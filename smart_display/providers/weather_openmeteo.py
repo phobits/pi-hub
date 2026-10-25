@@ -65,9 +65,8 @@ class OpenMeteoProvider(BaseProvider):
             self.state_store.update_section(
                 self.section_name,
                 WeatherState(
-                    snapshot=self.snapshot(status="empty"),
+                    snapshot=self.snapshot(status="disabled"),
                     location_label=self.config.weather.label,
-                    condition="Wetter deaktiviert",
                 ),
             )
             return

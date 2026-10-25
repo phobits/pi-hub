@@ -9,6 +9,14 @@ def utcnow_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+# Snapshot status (#19). Configuration and fetch health share one field:
+#   disabled  source not set up / switched off — calm, never an error
+#   empty     set up, no fetch has finished yet ("wird geladen")
+#   ok        last fetch succeeded — with or without items
+#   stale     first failure after good data (data kept, age shown)
+#   error     repeated failure, or a failure without any good data yet
+# ``updated_at`` is the time of the last good fetch; None means there never was
+# one. Adding ``disabled`` was additive — no schema bump.
 @dataclass(slots=True)
 class ProviderSnapshot:
     status: str = "empty"
