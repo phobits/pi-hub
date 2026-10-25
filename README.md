@@ -66,6 +66,8 @@ PI_HOST=pi@<your-pi> bash scripts/deploy-pi.sh   # --dry-run, --force-restart
 
 It rsyncs the working tree to `/opt/smart-display` and restarts both units only if a file was transferred; docs, tests and `*.md` are excluded, and `.env`, `.kiosk.env`, `data/` and the venv are never touched. Exit code `3` means the Pi was unreachable. Changed systemd units or dependencies need `install-pi.sh` again (in place: `cd /opt/smart-display && sudo bash scripts/install-pi.sh`). A green report means the services came back — Cog renders to DRM, so the panel cannot be screenshotted.
 
+The screensaver pulls one new album photo per 30-minute tick. `PI_HOST=pi@<your-pi> bash scripts/sync-album.sh` pulls the whole album now: new, edited and removed photos (both units stop for about a minute; `--dry-run` only reports).
+
 On the device, `scripts/measure_pi.py --duration 60 --label baseline` writes one JSON line (memory, RSS, CPU, SD writes, `/api/state` latency, restarts) to `data/measurements/`; `scripts/pi/test-panel-blank.sh` checks whether the panel goes dark on DPMS-off.
 
 ## Known limits

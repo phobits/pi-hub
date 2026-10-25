@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
+import json
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
+from smart_display import album_sync
 from smart_display.cache.image_cache import (
     _INITIAL_BACKOFF_SECONDS,
     _MAX_BACKOFF_SECONDS,
     _compute_next_retry,
     ImageCache,
+    UNCHANGED_RENDITION_MAX_ATTEMPTS,
 )
 from smart_display.providers.lightroom_source import (
     LightroomSourceProvider,
+    _extract_lightroom_api_images,
     extract_image_urls,
 )
 from tests._support import FakeHttpClient, make_app_config, make_state_store
@@ -1092,9 +1098,9 @@ class LocalEntriesTest(unittest.TestCase):
         http = FakeHttpClient()
         http.add_response("GET", "https://album.example", status=album_status, body="")
         provider = LightroomSourceProvider(config, store, cache, http_client=http)
-        provider._image_urls_from_album_page = lambda html, url: [
-            "https://example.com/a.jpg"
-        ]
+        provider._image_urls_from_album_page = lambda html, url: {
+            "https://example.com/a.jpg": None
+        }
         return provider, store
 
     def test_empty_album_with_local_photos_is_ok(self) -> None:
@@ -1223,6 +1229,290 @@ class FailuresWriteOnChangeTest(unittest.TestCase):
         # Remove URL from source list → pruning must dirty the cache.
         cache.sync_remote_images([], timeout_seconds=5)
         self.assertGreater(self._save_calls, saves_after_fail)
+
+
+def _solid_png(color: tuple[int, int, int]) -> bytes:
+    from PIL import Image as _Image  # type: ignore
+
+    buffer = io.BytesIO()
+    _Image.new("RGB", (4, 4), color=color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _album_api_payload(*assets: dict) -> str:
+    return json.dumps(
+        {
+            "base": "https://photos.adobe.io/v2/spaces/space/",
+            "resources": [{"asset": asset} for asset in assets],
+        }
+    )
+
+
+def _api_asset(asset_id: str, **payload) -> dict:
+    return {
+        "id": asset_id,
+        "links": {
+            "/rels/rendition_type/1280": {
+                "href": f"assets/{asset_id}/revisions/rev/renditions/r1280"
+            }
+        },
+        "payload": payload,
+    }
+
+
+class DevelopFingerprintTest(unittest.TestCase):
+    """#15: the rendition URL survives an edit, the develop block does not."""
+
+    def _fingerprint(self, **payload) -> str | None:
+        images = _extract_lightroom_api_images(
+            _album_api_payload(_api_asset("a1", **payload)), "https://api.example/"
+        )
+        self.assertEqual(len(images), 1)
+        return next(iter(images.values()))
+
+    def test_edit_changes_fingerprint_url_stays(self) -> None:
+        before = _extract_lightroom_api_images(
+            _album_api_payload(_api_asset("a1", develop={"xmpCameraRaw": {"sha256": "1"}})),
+            "https://api.example/",
+        )
+        after = _extract_lightroom_api_images(
+            _album_api_payload(_api_asset("a1", develop={"xmpCameraRaw": {"sha256": "2"}})),
+            "https://api.example/",
+        )
+        self.assertEqual(list(before), list(after))
+        self.assertNotEqual(list(before.values()), list(after.values()))
+
+    def test_metadata_change_keeps_fingerprint(self) -> None:
+        develop = {"croppedWidth": 3456, "xmpCameraRaw": {"sha256": "1"}}
+        self.assertEqual(
+            self._fingerprint(develop=develop, aesthetics={"score": 86}),
+            self._fingerprint(develop=dict(develop), aesthetics={"score": 12}),
+        )
+
+    def test_asset_without_develop_gets_empty_fingerprint(self) -> None:
+        self.assertEqual(self._fingerprint(), "")
+
+    def test_fingerprint_ignores_key_order(self) -> None:
+        self.assertEqual(
+            self._fingerprint(develop={"a": 1, "b": 2}),
+            self._fingerprint(develop={"b": 2, "a": 1}),
+        )
+
+
+class EditedPhotoSyncTest(unittest.TestCase):
+    """#15: an edited photo is downloaded again; until then the old copy
+    keeps its slot in the rotation."""
+
+    URL = "https://example.com/a.jpg"
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        self._now = 1_000_000.0
+        self.payload = _solid_png((10, 20, 30))
+        self.calls: list[str] = []
+
+    def _downloader(self, url: str, timeout_seconds: int):
+        self.calls.append(url)
+        return self.payload, {}
+
+    def _make_cache(self) -> ImageCache:
+        return ImageCache(
+            cache_dir=self.tmp / "screensaver",
+            manifest_path=self.tmp / "screensaver" / "manifest.json",
+            downloader=self._downloader,
+            clock=lambda: self._now,
+        )
+
+    def _sync(self, cache: ImageCache, version: str | None, **kwargs):
+        return cache.sync_remote_images(
+            [self.URL], timeout_seconds=5, versions={self.URL: version}, **kwargs
+        )
+
+    def test_edited_photo_is_downloaded_under_a_new_name(self) -> None:
+        cache = self._make_cache()
+        (before,) = self._sync(cache, "v1")
+        self.payload = _solid_png((200, 20, 30))
+        (after,) = self._sync(cache, "v2")
+
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(after.source_version, "v2")
+        self.assertNotEqual(after.public_path, before.public_path)
+        self.assertTrue(Path(after.local_path).exists())
+        self.assertFalse(Path(before.local_path).exists())
+
+    def test_unchanged_fingerprint_is_not_downloaded_again(self) -> None:
+        cache = self._make_cache()
+        self._sync(cache, "v1")
+        self._sync(cache, "v1")
+        self.assertEqual(len(self.calls), 1)
+
+    def test_old_copy_stays_while_budget_is_spent_on_new_photos(self) -> None:
+        cache = self._make_cache()
+        (before,) = self._sync(cache, "v1")
+        entries = cache.sync_remote_images(
+            ["https://example.com/new.jpg", self.URL],
+            timeout_seconds=5,
+            max_new_downloads=1,
+            versions={"https://example.com/new.jpg": "", self.URL: "v2"},
+        )
+        self.assertEqual(self.calls[-1], "https://example.com/new.jpg")
+        self.assertIn(before, entries)
+        self.assertTrue(Path(before.local_path).exists())
+
+    def test_identical_rendition_keeps_old_copy_then_gives_up(self) -> None:
+        # Lightroom has the edit but has not re-rendered: same bytes back.
+        cache = self._make_cache()
+        (before,) = self._sync(cache, "v1")
+        for attempt in range(1, UNCHANGED_RENDITION_MAX_ATTEMPTS):
+            (entry,) = self._sync(cache, "v2")
+            self.assertEqual(entry, before)
+            self.assertEqual(cache.failed_urls()[self.URL]["attempts"], attempt)
+            self._now += _MAX_BACKOFF_SECONDS + 1
+        self.assertEqual(sorted(p.name for p in cache.cache_dir.glob("*.jpg")),
+                         [Path(before.local_path).name])
+
+        (entry,) = self._sync(cache, "v2")
+        self.assertEqual(entry.source_version, "v2")
+        # Accepted under its own filename, like any edit — reverting to v1
+        # later must not overwrite a path the kiosk may have cached.
+        self.assertNotEqual(entry.public_path, before.public_path)
+        self.assertFalse(Path(before.local_path).exists())
+        self.assertNotIn(self.URL, cache.failed_urls())
+        downloads = len(self.calls)
+        self._now += _MAX_BACKOFF_SECONDS + 1
+        self._sync(cache, "v2")
+        self.assertEqual(len(self.calls), downloads)
+
+    def test_download_errors_do_not_count_toward_unchanged_streak(self) -> None:
+        cache = self._make_cache()
+        (before,) = self._sync(cache, "v1")
+        good_payload = self.payload
+        self.payload = b"not an image"
+        for _ in range(UNCHANGED_RENDITION_MAX_ATTEMPTS):
+            self._sync(cache, "v2", respect_backoff=False)
+        self.payload = good_payload  # Lightroom answers, still old bytes
+        (entry,) = self._sync(cache, "v2", respect_backoff=False)
+        self.assertEqual(entry, before)
+        self.assertEqual(cache.failed_urls()[self.URL]["unchanged_attempts"], 1)
+
+    def test_unchanged_streak_restarts_for_a_newer_edit(self) -> None:
+        cache = self._make_cache()
+        (before,) = self._sync(cache, "v1")
+        for _ in range(UNCHANGED_RENDITION_MAX_ATTEMPTS - 1):
+            self._sync(cache, "v2", respect_backoff=False)
+        (entry,) = self._sync(cache, "v3", respect_backoff=False)
+        self.assertEqual(entry, before)
+        self.assertEqual(cache.failed_urls()[self.URL]["unchanged_attempts"], 1)
+
+    def test_rerendered_photo_replaces_old_copy_after_identical_answer(self) -> None:
+        cache = self._make_cache()
+        self._sync(cache, "v1")
+        self._sync(cache, "v2")  # still the old bytes
+        self.payload = _solid_png((200, 20, 30))
+        self._now += _INITIAL_BACKOFF_SECONDS + 1
+        (entry,) = self._sync(cache, "v2")
+        self.assertEqual(entry.source_version, "v2")
+        self.assertNotIn(self.URL, cache.failed_urls())
+
+    def test_manual_sync_ignores_backoff(self) -> None:
+        cache = self._make_cache()
+        self._sync(cache, "v1")
+        self._sync(cache, "v2")  # identical → in backoff
+        self._sync(cache, "v2")
+        self.assertEqual(len(self.calls), 2)
+        self._sync(cache, "v2", respect_backoff=False)
+        self.assertEqual(len(self.calls), 3)
+
+    def test_entry_from_before_15_adopts_fingerprint_without_download(self) -> None:
+        cache = self._make_cache()
+        (legacy,) = cache.sync_remote_images([self.URL], timeout_seconds=5)
+        self.assertIsNone(legacy.source_version)
+
+        restarted = self._make_cache()
+        (entry,) = self._sync(restarted, "v1")
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(entry.local_path, legacy.local_path)
+        self.assertEqual(entry.source_version, "v1")
+        # Persisted: the next edit after a restart is still noticed.
+        plan = self._make_cache().plan_remote_sync([self.URL], {self.URL: "v2"})
+        self.assertEqual(plan.edited, {self.URL})
+
+    def test_plan_classifies_new_edited_gone(self) -> None:
+        cache = self._make_cache()
+        cache.sync_remote_images(
+            [self.URL, "https://example.com/gone.jpg"],
+            timeout_seconds=5,
+            versions={self.URL: "v1", "https://example.com/gone.jpg": ""},
+        )
+        plan = cache.plan_remote_sync(
+            [self.URL, "https://example.com/new.jpg"],
+            {self.URL: "v2", "https://example.com/new.jpg": ""},
+        )
+        self.assertEqual(plan.new, {"https://example.com/new.jpg"})
+        self.assertEqual(plan.edited, {self.URL})
+        self.assertEqual(plan.gone, {"https://example.com/gone.jpg"})
+        self.assertEqual(plan.adopt, set())
+
+
+class AlbumSyncCommandTest(unittest.TestCase):
+    """#15: scripts/sync-album.sh runs ``python -m smart_display.album_sync``."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        base = make_app_config(self.tmp)
+        self.config = replace(
+            base,
+            screensaver=replace(base.screensaver, source_url="https://album.example"),
+        )
+        self.calls: list[str] = []
+        self.cache = ImageCache(
+            cache_dir=self.config.screensaver_cache_dir,
+            manifest_path=self.config.screensaver_manifest_path,
+            downloader=self._downloader,
+        )
+        album = {"https://example.com/a.jpg": "", "https://example.com/b.jpg": "v1"}
+        for patcher in (
+            mock.patch.object(album_sync, "_image_cache", return_value=self.cache),
+            mock.patch.object(
+                LightroomSourceProvider, "fetch_album_images", return_value=album
+            ),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _downloader(self, url: str, timeout_seconds: int):
+        self.calls.append(url)
+        return SAMPLE_PNG, {}
+
+    def _run(self, *argv: str, backend_running: bool = False) -> tuple[int, str]:
+        out = io.StringIO()
+        with mock.patch.object(
+            album_sync, "_backend_is_running", return_value=backend_running
+        ), contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = album_sync.main(list(argv), config=self.config)
+        return code, out.getvalue()
+
+    def test_refuses_while_backend_runs(self) -> None:
+        code, output = self._run(backend_running=True)
+        self.assertEqual(code, 2)
+        self.assertIn("Backend läuft noch", output)
+        self.assertEqual(self.calls, [])
+
+    def test_dry_run_downloads_nothing_even_with_backend_up(self) -> None:
+        code, output = self._run("--dry-run", backend_running=True)
+        self.assertEqual(code, 0)
+        self.assertIn("neu: 2", output)
+        self.assertEqual(self.calls, [])
+
+    def test_sync_fetches_whole_album_at_once(self) -> None:
+        code, output = self._run()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.calls), 2)
+        self.assertIn("Fertig: 2 von 2", output)
 
 
 if __name__ == "__main__":

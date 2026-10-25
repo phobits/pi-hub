@@ -7,6 +7,7 @@ import os
 import random
 import threading
 import time
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -41,6 +42,12 @@ IMAGE_MAX_BYTES = 8_000_000
 # Retry backoff for failed downloads. Doubles on each attempt, capped at 24 h.
 _INITIAL_BACKOFF_SECONDS = 60.0
 _MAX_BACKOFF_SECONDS = 24 * 60 * 60.0
+
+# An edited photo (#15) whose rendition still comes back byte-identical is
+# retried with the backoff above, and accepted as-is after this many
+# identical answers. Enough to ride out Lightroom re-rendering, bounded so
+# an edit that leaves the rendition alone stops costing downloads.
+UNCHANGED_RENDITION_MAX_ATTEMPTS = 8
 
 
 LOCAL_IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp"})
@@ -92,6 +99,20 @@ def _public_path(prefix: str, filename: str) -> str:
     # ``#``, ``%`` or ``?`` in a user's filename would otherwise end the path
     # early or form a broken escape, so the browser requests a different URL.
     return f"{prefix}/{quote(filename)}"
+
+
+@dataclass
+class RemoteSyncPlan:
+    """What ``sync_remote_images`` would do, before any download."""
+
+    urls: list[str]
+    # Cached photos whose file is still on disk, by source URL.
+    existing: dict[str, PhotoManifestEntry] = field(default_factory=dict)
+    new: set[str] = field(default_factory=set)
+    edited: set[str] = field(default_factory=set)
+    # Cached before #15 (no fingerprint yet): take the current one as is.
+    adopt: set[str] = field(default_factory=set)
+    gone: set[str] = field(default_factory=set)
 
 
 class ImageCache:
@@ -183,8 +204,15 @@ class ImageCache:
         *,
         timeout_seconds: int,
         max_new_downloads: int | None = None,
+        versions: dict[str, str | None] | None = None,
+        respect_backoff: bool = True,
     ) -> list[PhotoManifestEntry]:
         """Reconcile the manifest against ``source_urls``.
+
+        ``versions`` maps a URL to the fingerprint of its edit state (#15).
+        A cached photo whose fingerprint changed is downloaded again; it
+        shares the per-tick budget with new photos. ``respect_backoff=False``
+        is for the manual sync: someone asked for everything, now.
 
         Plan B9:
         - At most ``max_new_downloads`` new entries are fetched per call
@@ -197,50 +225,70 @@ class ImageCache:
           per-tick budget is exhausted — only the manifest's URL set
           shrinks to ``source_urls``.
         """
-        unique_urls = list(dict.fromkeys(source_urls))
-        existing = {
-            entry.source_url: entry
-            for entry in self._entries
-            if Path(entry.local_path).exists()
+        versions = versions or {}
+        plan = self.plan_remote_sync(source_urls, versions)
+        # Album order, with an edited photo's old copy holding its slot until
+        # the new one is in.
+        slots: dict[str, PhotoManifestEntry | None] = {
+            url: plan.existing.get(url) for url in plan.urls
         }
+        for url in plan.adopt:
+            slots[url] = replace(slots[url], source_version=versions[url])
 
-        next_entries: list[PhotoManifestEntry] = []
-        used_filenames: set[str] = set()
-        pending_urls: list[str] = []
-
-        for url in unique_urls:
-            cached = existing.get(url)
-            if cached:
-                next_entries.append(cached)
-                used_filenames.add(Path(cached.local_path).name)
-            else:
-                pending_urls.append(url)
-
+        pending_urls = [url for url in plan.urls if url in plan.new or url in plan.edited]
         now = self._clock()
         budget = max_new_downloads if max_new_downloads is not None else len(pending_urls)
         attempted = 0
         for url in pending_urls:
             if attempted >= budget:
                 break
-            if self._is_in_backoff(url, now):
+            if respect_backoff and self._is_in_backoff(url, now):
                 continue
             attempted += 1
+            version = versions.get(url)
             try:
                 downloaded = self._download_and_prepare(
-                    url, timeout_seconds=timeout_seconds
+                    url, timeout_seconds=timeout_seconds, version=version
                 )
             except Exception as exc:  # noqa: BLE001 — Pillow exceptions vary
                 self._record_failure(url, exc)
                 continue
             if downloaded is None:
                 continue
+            previous = slots[url]
+            if (
+                previous is not None
+                and previous.content_hash == downloaded.content_hash
+            ):
+                # Edited in Lightroom, but the rendition still has the old
+                # bytes: Lightroom has not re-rendered yet. Keep the old copy
+                # and retry with backoff — but accept after a few identical
+                # answers, so an edit that does not change the rendition
+                # cannot cost a download per tick forever. The streak is
+                # counted per target version, apart from download errors,
+                # and accepting keeps the new filename like any other edit.
+                prior = self._failures.get(url, {})
+                streak = 1
+                if prior.get("unchanged_for") == version:
+                    streak += int(prior.get("unchanged_attempts", 0))
+                if streak < UNCHANGED_RENDITION_MAX_ATTEMPTS:
+                    if downloaded.local_path != previous.local_path:
+                        Path(downloaded.local_path).unlink(missing_ok=True)
+                    self._record_failure(
+                        url, RuntimeError("Lightroom-Rendition noch unverändert")
+                    )
+                    self._failures[url].update(
+                        unchanged_for=version, unchanged_attempts=streak
+                    )
+                    continue
             self._clear_failure(url)
-            next_entries.append(downloaded)
-            used_filenames.add(Path(downloaded.local_path).name)
+            slots[url] = downloaded
 
         # Drop failures for URLs that are no longer in the source list.
-        self._prune_failures(set(unique_urls))
+        self._prune_failures(set(plan.urls))
 
+        next_entries = [entry for entry in slots.values() if entry is not None]
+        used_filenames = {Path(entry.local_path).name for entry in next_entries}
         self._entries = next_entries
         self._cleanup_unused_files(used_filenames)
         self.manifest_cache.save([entry.to_dict() for entry in self._entries])
@@ -248,6 +296,35 @@ class ImageCache:
             self.failures_cache.save(self._failures)
             self._failures_dirty = False
         return self.entries()
+
+    def plan_remote_sync(
+        self,
+        source_urls: list[str],
+        versions: dict[str, str | None] | None = None,
+    ) -> RemoteSyncPlan:
+        versions = versions or {}
+        existing = self._existing_by_url()
+        plan = RemoteSyncPlan(urls=list(dict.fromkeys(source_urls)), existing=existing)
+        for url in plan.urls:
+            cached = existing.get(url)
+            wanted = versions.get(url)
+            if cached is None:
+                plan.new.add(url)
+            elif wanted is None or cached.source_version == wanted:
+                continue
+            elif cached.source_version is None:
+                plan.adopt.add(url)
+            else:
+                plan.edited.add(url)
+        plan.gone = set(existing) - set(plan.urls)
+        return plan
+
+    def _existing_by_url(self) -> dict[str, PhotoManifestEntry]:
+        return {
+            entry.source_url: entry
+            for entry in self._entries
+            if Path(entry.local_path).exists()
+        }
 
     def next_entry(self, *, include_demo: bool = True) -> PhotoManifestEntry | None:
         pool = self.available_entries(include_demo=include_demo)
@@ -646,10 +723,13 @@ class ImageCache:
                 path.unlink(missing_ok=True)
 
     def _download_and_prepare(
-        self, source_url: str, *, timeout_seconds: int
+        self, source_url: str, *, timeout_seconds: int, version: str | None = None
     ) -> PhotoManifestEntry | None:
         payload, headers = self._downloader(source_url, timeout_seconds)
-        digest = hashlib.sha1(source_url.encode("utf-8")).hexdigest()[:16]
+        # An edit gets its own filename, so the kiosk never shows a copy it
+        # cached under the old one. Unedited photos keep the pre-#15 name.
+        cache_key = f"{source_url}#{version}" if version else source_url
+        digest = hashlib.sha1(cache_key.encode("utf-8")).hexdigest()[:16]
         filename = f"{digest}.jpg"
         local_path = self.cache_dir / filename
         width, height = self.display_size
@@ -674,6 +754,7 @@ class ImageCache:
             content_hash=hashlib.sha1(payload).hexdigest(),
             etag=headers.get("etag"),
             last_modified=headers.get("last-modified"),
+            source_version=version,
         )
 
     def _write_fitted(self, source: bytes | Path, target: Path) -> tuple[int, int]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import re
@@ -130,19 +131,12 @@ class LightroomSourceProvider(BaseProvider):
             return
 
         try:
-            response = self._get_album_page()
-            if not response.ok:
-                raise HttpError(
-                    f"Lightroom antwortete mit {response.status}"
-                )
-            html_text = response.text()
-            image_urls = self._image_urls_from_album_page(html_text, response.url)
-            if not image_urls:
-                raise RuntimeError("Keine Bild-URLs im Lightroom-Album gefunden.")
+            images = self.fetch_album_images()
             entries = self.image_cache.sync_remote_images(
-                image_urls,
+                list(images),
                 timeout_seconds=self.config.screensaver.timeout_seconds,
                 max_new_downloads=max(self.config.screensaver.images_per_tick, 1),
+                versions=images,
             )
             # Local photos rotate alongside the album, so an empty album with
             # local photos is as healthy as the local-only branch above.
@@ -161,6 +155,22 @@ class LightroomSourceProvider(BaseProvider):
                 self.snapshot(status=fallback_status, error_message=str(exc)),
             )
             self.state_store.set_screensaver_photo_count(available_photo_count())
+
+    def fetch_album_images(self) -> dict[str, str | None]:
+        """The album as ``{rendition URL: edit fingerprint}``, in album order.
+
+        Raises ``HttpError``/``RuntimeError`` rather than returning an empty
+        album, so a failed fetch never reconciles the cache down to nothing.
+        """
+        response = self._get_album_page()
+        if not response.ok:
+            raise HttpError(
+                f"Lightroom antwortete mit {response.status}"
+            )
+        images = self._image_urls_from_album_page(response.text(), response.url)
+        if not images:
+            raise RuntimeError("Keine Bild-URLs im Lightroom-Album gefunden.")
+        return images
 
     def _get_album_page(self):
         url = self.config.screensaver.source_url
@@ -181,11 +191,13 @@ class LightroomSourceProvider(BaseProvider):
             url = next_url
         raise HttpError("Lightroom-Weiterleitungslimit erreicht.")
 
-    def _image_urls_from_album_page(self, html_text: str, page_url: str) -> list[str]:
-        html_urls = extract_image_urls(html_text, page_url)
+    def _image_urls_from_album_page(
+        self, html_text: str, page_url: str
+    ) -> dict[str, str | None]:
         album_api_url = _extract_lightroom_album_api_url(html_text, page_url)
         if not album_api_url:
-            return html_urls
+            # A plain page knows nothing about edits.
+            return dict.fromkeys(extract_image_urls(html_text, page_url))
 
         # Once the page names an album API, only its answer is the album. The
         # HTML adds just the cover (og:image) — one of the album's assets
@@ -200,10 +212,10 @@ class LightroomSourceProvider(BaseProvider):
         if not response.ok:
             raise HttpError(f"Lightroom album API antwortete mit {response.status}")
 
-        api_urls = _extract_lightroom_api_image_urls(response.text(), response.url)
-        if not api_urls:
+        api_images = _extract_lightroom_api_images(response.text(), response.url)
+        if not api_images:
             raise RuntimeError("Lightroom album API lieferte keine Bilder.")
-        return api_urls
+        return api_images
 
 
 def _extract_lightroom_album_api_url(html_text: str, page_url: str) -> str | None:
@@ -264,18 +276,20 @@ def _extract_json_object_after_marker(html_text: str, marker: str) -> dict | Non
     return None
 
 
-def _extract_lightroom_api_image_urls(payload_text: str, api_url: str) -> list[str]:
+def _extract_lightroom_api_images(
+    payload_text: str, api_url: str
+) -> dict[str, str | None]:
     payload = _parse_guarded_json(payload_text)
     if not isinstance(payload, dict):
-        return []
+        return {}
     base = payload.get("base")
     if not isinstance(base, str) or not base:
         base = api_url
 
-    urls: list[str] = []
+    images: dict[str, str | None] = {}
     resources = payload.get("resources")
     if not isinstance(resources, list):
-        return []
+        return {}
     for resource in resources:
         if not isinstance(resource, dict):
             continue
@@ -287,8 +301,26 @@ def _extract_lightroom_api_image_urls(payload_text: str, api_url: str) -> list[s
             continue
         href = _best_rendition_href(links)
         if href:
-            urls.append(_with_api_key(urllib_parse.urljoin(base, href)))
-    return _dedupe_urls(urls)
+            url = _with_api_key(urllib_parse.urljoin(base, href))
+            images.setdefault(url, _develop_fingerprint(asset))
+    return images
+
+
+def _develop_fingerprint(asset: dict) -> str:
+    """Fingerprint of an asset's edit state (#15).
+
+    The rendition URL does not change when a photo is edited — its
+    ``revisions/<id>`` is the original's revision. ``payload.develop``
+    (crop, orientation, ``xmpCameraRaw.sha256``, masks) does, while
+    metadata and the aesthetics score sit outside it. An asset without a
+    develop block gets ``""``, so its first edit still counts as a change.
+    """
+    payload = asset.get("payload")
+    develop = payload.get("develop") if isinstance(payload, dict) else None
+    if not isinstance(develop, dict):
+        return ""
+    canonical = json.dumps(develop, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def _parse_guarded_json(payload_text: str):
@@ -332,7 +364,3 @@ def _with_api_key(url: str) -> str:
             parsed.fragment,
         )
     )
-
-
-def _dedupe_urls(urls: list[str]) -> list[str]:
-    return list(dict.fromkeys(urls))

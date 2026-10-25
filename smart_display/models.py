@@ -348,6 +348,9 @@ class PhotoManifestEntry:
     content_hash: str | None = None
     etag: str | None = None
     last_modified: str | None = None
+    # Fingerprint of the Lightroom develop settings (#15). None = written
+    # before #15, or a source that has no notion of edits.
+    source_version: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -360,6 +363,7 @@ class PhotoManifestEntry:
             "content_hash": self.content_hash,
             "etag": self.etag,
             "last_modified": self.last_modified,
+            "source_version": self.source_version,
         }
 
     @classmethod
@@ -374,6 +378,7 @@ class PhotoManifestEntry:
             content_hash=data.get("content_hash"),
             etag=data.get("etag"),
             last_modified=data.get("last_modified"),
+            source_version=data.get("source_version"),
         )
 
 

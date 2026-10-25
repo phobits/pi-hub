@@ -11,6 +11,28 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-10-25
+
+### Behoben
+
+- In Lightroom bearbeitete Fotos werden auf dem Pi aktualisiert. Die
+  Rendition-URL ändert sich beim Bearbeiten nicht, deshalb blieb bisher jedes
+  Foto für immer in der Fassung, in der es zuerst geladen wurde. Jetzt wird pro
+  Foto ein Fingerabdruck der Entwicklungseinstellungen (`payload.develop`)
+  mitgeführt. Ändert er sich, wird das Foto unter neuem Dateinamen neu geladen;
+  bis dahin bleibt die alte Fassung in der Rotation. Liefert Lightroom noch die
+  alten Bytes, wird mit Backoff erneut versucht. Bestehende Fotos übernehmen
+  den Fingerabdruck ohne Download
+  ([#15](https://github.com/phobits/pi-hub/issues/15)).
+
+### Hinzugefügt
+
+- `scripts/sync-album.sh`: zieht das Lightroom-Album sofort komplett auf den
+  Pi (neue, bearbeitete und entfernte Fotos), statt ein Foto pro 30 Minuten.
+  Stoppt dafür Kiosk und Backend gemeinsam und startet beide auch bei einem
+  Fehler wieder; `--dry-run` zeigt nur an
+  ([#15](https://github.com/phobits/pi-hub/issues/15)).
+
 ## [0.11.1] - 2026-10-25
 
 ### Geändert
@@ -472,7 +494,8 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.2...HEAD
+[0.11.2]: https://github.com/phobits/pi-hub/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/phobits/pi-hub/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/phobits/pi-hub/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/phobits/pi-hub/compare/v0.9.2...v0.10.0
