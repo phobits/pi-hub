@@ -118,6 +118,7 @@ class StateStore:
         error_message: str,
         stale_after_seconds: int,
         source: str,
+        transient: bool = True,
     ) -> None:
         """Record a provider fetch failure.
 
@@ -132,7 +133,10 @@ class StateStore:
         Boot grace: until a section has had one good answer in this process,
         failures inside FIRST_FETCH_GRACE_SECONDS change nothing but the
         message (``disabled`` becomes ``empty``), and the job retries early —
-        see ``retry_wait``.
+        see ``retry_wait``. ``transient=False`` marks a failure no retry can
+        fix (missing dependency, rejected credentials): it goes straight to
+        ``error`` — cached good data included, so it cannot hide behind
+        ``stale`` for an interval — and ends any early retry.
 
         ``updated_at`` stays the time of the last good fetch. Coming from
         ``empty``/``disabled`` there was none — a ``disabled`` snapshot (a
@@ -145,7 +149,10 @@ class StateStore:
             section = getattr(self._state, section_name)
             previous_status = section.snapshot.status
             never_good = previous_status in ("empty", "disabled")
-            if section_name not in self._answered and self._in_grace_locked():
+            if not transient:
+                self._missed.discard(section_name)
+                next_status = "error"
+            elif section_name not in self._answered and self._in_grace_locked():
                 self._missed.add(section_name)
                 next_status = "empty" if never_good else previous_status
             elif previous_status == "ok":

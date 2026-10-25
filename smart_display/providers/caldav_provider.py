@@ -164,12 +164,13 @@ class CalDAVProvider(BaseProvider):
         try:
             from caldav import DAVClient  # type: ignore
             from icalendar import Calendar  # type: ignore
-        except ImportError as exc:  # pragma: no cover
+        except ImportError as exc:
             self.state_store.mark_error(
                 self.section_name,
                 error_message=f"CalDAV dependencies fehlen: {exc}",
                 stale_after_seconds=self.refresh_interval_seconds * 2,
                 source=self.source_name,
+                transient=False,
             )
             return
 

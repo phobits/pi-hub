@@ -290,8 +290,107 @@ class SpotifyStatesTest(_Fixture):
         self.assertEqual(snapshot.status, "error")
         self.assertIsNone(snapshot.updated_at)
 
+    def test_error_status_without_a_body_is_an_error_not_silence(self) -> None:
+        # A 503/401 with an empty body used to read as "Keine aktive Wiedergabe".
+        for status in (503, 401):
+            with self.subTest(status=status):
+                provider, store, http = self._provider(configured=True)
+                http.add_response("GET", PLAYER_URL, status=status, body=b"")
+                self.past_grace()
+                provider.refresh()
+                self.assertEqual(store.get_state().spotify.snapshot.status, "error")
+
+    def test_empty_bodied_error_gets_the_german_status_message(self) -> None:
+        provider, store, http = self._provider(configured=True)
+        http.add_response("GET", PLAYER_URL, status=503, body=b"")
+        self.past_grace()
+        provider.refresh()
+        self.assertEqual(store.get_state().spotify.snapshot.error_message,
+                         "Spotify nicht erreichbar.")
+
+    def test_redirect_without_a_body_is_an_error(self) -> None:
+        # The HTTP client follows no redirects; a 3xx is not "nothing playing".
+        provider, store, http = self._provider(configured=True)
+        http.add_response("GET", PLAYER_URL, status=302, body=b"")
+        self.past_grace()
+        provider.refresh()
+        self.assertEqual(store.get_state().spotify.snapshot.status, "error")
+
+    def test_rejected_refresh_token_skips_the_boot_grace(self) -> None:
+        provider, store, http = self._provider(configured=True)
+        provider._access_token = None
+        http.add_response("POST", TOKEN_URL, status=400, body={"error": "invalid_grant"})
+        provider.refresh()
+        self.assertEqual(store.get_state().spotify.snapshot.status, "error")
+        self.assertIsNone(store.retry_wait("spotify"))
+
+    def test_token_endpoint_outage_waits_out_the_boot_grace(self) -> None:
+        provider, store, http = self._provider(configured=True)
+        provider._access_token = None
+        http.add_response("POST", TOKEN_URL, status=503, body=b"")
+        provider.refresh()
+        self.assertEqual(store.get_state().spotify.snapshot.status, "empty")
+        self.assertEqual(store.retry_wait("spotify"), FIRST_FETCH_RETRY_SECONDS)
+
+    def test_success_without_a_body_is_still_nothing_playing(self) -> None:
+        provider, store, http = self._provider(configured=True)
+        http.add_response("GET", PLAYER_URL, status=200, body=b"")
+        provider.refresh()
+        spotify = store.get_state().spotify
+        self.assertEqual(spotify.snapshot.status, "ok")
+        self.assertTrue(spotify.connected)
+
+
+class PermanentFailureTest(_Fixture):
+    """``transient=False``: a failure no retry heals shows at once, through
+    the real provider paths that raise it."""
+
+    def _calendar_store(self, cached_ok: bool = False) -> tuple[CalDAVProvider, StateStore]:
+        config = make_app_config(self.tmp, calendar_enabled=True)
+        config.calendar = replace(
+            config.calendar, url="https://dav.example", username="u", password="p"
+        )
+        if cached_ok:
+            payload = StateStore(config).to_dict()
+            payload["calendar"]["snapshot"].update(
+                {"status": "ok", "updated_at": "2026-10-24T20:10:00+00:00"}
+            )
+            config.last_good_path.write_text(json.dumps(payload), encoding="utf-8")
+        store = self.store_for(config)
+        # None in sys.modules makes ``import caldav`` raise ImportError.
+        patcher = mock.patch.dict(sys.modules, {"caldav": None})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return CalDAVProvider(config, store), store
+
+    def test_missing_caldav_dependency_skips_the_boot_grace(self) -> None:
+        provider, store = self._calendar_store()
+        provider.refresh()
+        snapshot = store.get_state().calendar.snapshot
+        self.assertEqual(snapshot.status, "error")
+        self.assertIn("CalDAV dependencies fehlen", snapshot.error_message)
+        self.assertIsNone(store.retry_wait("calendar"))
+
+    def test_permanent_failure_does_not_hide_behind_cached_data(self) -> None:
+        provider, store = self._calendar_store(cached_ok=True)
+        provider.refresh()
+        snapshot = store.get_state().calendar.snapshot
+        self.assertEqual(snapshot.status, "error")
+        self.assertEqual(snapshot.updated_at, "2026-10-24T20:10:00+00:00")
+
+    def test_permanent_failure_ends_an_early_retry_already_running(self) -> None:
+        store = self.store_for(make_app_config(self.tmp))
+        store.mark_error("calendar", error_message="no route", stale_after_seconds=600,
+                         source="caldav")
+        self.assertEqual(store.retry_wait("calendar"), FIRST_FETCH_RETRY_SECONDS)
+        store.mark_error("calendar", error_message="CalDAV dependencies fehlen",
+                         stale_after_seconds=600, source="caldav", transient=False)
+        self.assertEqual(store.get_state().calendar.snapshot.status, "error")
+        self.assertIsNone(store.retry_wait("calendar"))
+
 
 PLAYER_URL = "https://api.spotify.com/v1/me/player?additional_types=episode"
+TOKEN_URL = "https://accounts.spotify.com/api/token"
 
 
 def _any_url(http: FakeHttpClient) -> str:

@@ -245,6 +245,12 @@ _SPOTIFY_STATUS_MESSAGES: dict[int, str] = {
 _SPOTIFY_DEFAULT_ERROR = "Spotify nicht erreichbar."
 
 
+class SpotifyAuthRejected(RuntimeError):
+    """The token endpoint refused the refresh token (400/401) — revoked,
+    expired or for another app. Retrying does not help, so the boot grace is
+    skipped (#19); a 5xx there stays an ordinary, transient failure."""
+
+
 def spotify_status_message(status: int) -> str:
     """Return the German-localised error message for a Spotify HTTP status."""
     return _SPOTIFY_STATUS_MESSAGES.get(status, _SPOTIFY_DEFAULT_ERROR)
@@ -301,10 +307,17 @@ class SpotifyProvider(BaseProvider):
                 error_message=str(exc),
                 stale_after_seconds=self.refresh_interval_seconds * 2,
                 source=self.source_name,
+                transient=not isinstance(exc, SpotifyAuthRejected),
             )
             return
 
-        if response.status in {202, 204, 404} or not response.body:
+        # Nothing playing: 204 (or 202/404 from a player without a device), or
+        # a 2xx without a body. Any other status without a body — 3xx included,
+        # the HTTP client follows no redirects — is an error (#19); it used to
+        # read as "Keine aktive Wiedergabe", i.e. silent.
+        if response.status in {202, 204, 404} or (
+            response.ok and not response.body
+        ):
             self.state_store.update_section(
                 self.section_name,
                 SpotifyState(
@@ -326,10 +339,10 @@ class SpotifyProvider(BaseProvider):
             )
             return
 
-        if response.status >= 400:
+        if not response.ok:
             self.state_store.mark_error(
                 self.section_name,
-                error_message=f"Spotify antwortete mit {response.status}.",
+                error_message=spotify_status_message(response.status),
                 stale_after_seconds=self.refresh_interval_seconds * 2,
                 source=self.source_name,
             )
@@ -746,7 +759,12 @@ class SpotifyProvider(BaseProvider):
                 timeout=self.config.spotify.timeout_seconds,
             )
             if not response.ok:
-                raise RuntimeError(
+                error = (
+                    SpotifyAuthRejected
+                    if response.status in (400, 401)
+                    else RuntimeError
+                )
+                raise error(
                     response.text() or "Spotify token refresh fehlgeschlagen."
                 )
             payload = response.json()

@@ -11,6 +11,20 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-25
+
+### Behoben
+
+- Eine Spotify-Antwort mit Fehlerstatus und leerem Body (z. B. 503) galt als
+  „Keine aktive Wiedergabe“ — der Ausfall blieb stumm. Jetzt ist sie ein Fehler
+  mit der deutschen Meldung; ein 3xx ohne Body ebenso, statt `refresh()` mit
+  einer Exception zu verlassen ([#19](https://github.com/phobits/pi-hub/issues/19)).
+- Fehler, die kein erneuter Versuch heilt — fehlende CalDAV-Abhängigkeit, vom
+  Token-Endpoint abgelehnter Spotify-Refresh-Token —, warten die
+  Boot-Schonfrist nicht mehr ab und verstecken sich nicht hinter
+  zwischengespeicherten Daten: sie stehen sofort als Fehler da
+  ([#19](https://github.com/phobits/pi-hub/issues/19)).
+
 ## [0.12.0] - 2026-10-25
 
 ### Hinzugefügt
