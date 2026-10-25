@@ -56,7 +56,7 @@ First install, on Raspberry Pi OS Lite from a clone of this repo:
 sudo env SMART_DISPLAY_KIOSK_BROWSER=cog bash scripts/install-pi.sh   # drop the env for Chromium/X11
 ```
 
-It installs packages, the venv and both systemd units into `/opt/smart-display`, plus the systemd watchdog, journald cap, hardware watchdog, zram and the sudoers rule for the power buttons. Then fill in `/opt/smart-display/.env` and reboot. Browser-only settings go into `.kiosk.env` — the browser inherits it, so no credentials there. `SMART_DISPLAY_GPIO_SHUTDOWN=true` lets shorting GPIO3 (pin 5) to GND start a halted Pi.
+It installs packages, the venv and both systemd units into `/opt/smart-display`, plus the systemd watchdog, journald cap, hardware watchdog, zram and the sudoers rule for the power buttons. Then fill in `/opt/smart-display/.env` and reboot. Browser-only settings go into `.kiosk.env` — the browser inherits it, so no credentials there. `SMART_DISPLAY_GPIO_SHUTDOWN=true` lets shorting GPIO3 (pin 5) to GND start a halted Pi. It also adds `video=HDMI-A-1:1024x600@60D` to `/boot/firmware/cmdline.txt` (backup next to it), so a panel that briefly drops HDMI hotplug cannot lock the kiosk out; `hdmi_force_hotplug` in `config.txt` has no effect under KMS. Set `SMART_DISPLAY_HDMI_VIDEO` to another value (e.g. `HDMI-A-2:…` on a Pi 4) or to empty to skip it.
 
 Updates:
 

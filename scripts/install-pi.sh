@@ -10,6 +10,8 @@
 #   sudo bash scripts/install-pi.sh
 # Optional, falls ein anderer Service-User verwendet werden soll:
 #   sudo env SMART_DISPLAY_USER=pi bash scripts/install-pi.sh
+# Schritt 8 setzt video=HDMI-A-1:1024x600@60D in cmdline.txt (#16); anderer
+# Wert bzw. abschalten über SMART_DISPLAY_HDMI_VIDEO (siehe dort).
 #
 set -euo pipefail
 
@@ -223,7 +225,7 @@ echo "  Services aktiviert für $SERVICE_USER:$SERVICE_GROUP (starten beim näch
 
 # --- 8. Dauerbetrieb (Ticket #1) + Ausschalten per Touch (Ticket #2) --------
 
-echo "=== 8/8  Dauerbetrieb: journald, Watchdog, zram, sudo ==="
+echo "=== 8/8  Dauerbetrieb: journald, Watchdog, HDMI, zram, sudo ==="
 
 # journald-Deckel — sonst frisst eine gesprächige Woche die SD-Karte.
 install -d -m 755 /etc/systemd/journald.conf.d
@@ -252,10 +254,53 @@ if [[ -f "$CONFIG_TXT" ]]; then
 else
     echo "  Warnung: config.txt nicht gefunden — Watchdog-dtparam manuell setzen." >&2
 fi
+
 install -d -m 755 /etc/systemd/system.conf.d
 install -m 644 "$INSTALL_DIR/deploy/systemd/system-watchdog.conf" \
     /etc/systemd/system.conf.d/smart-display-watchdog.conf
 echo "  systemd: RuntimeWatchdogSec=15 (wirkt nach Reboot bzw. daemon-reexec)"
+
+# HDMI als verbunden erzwingen (#16). Unter vollem KMS (vc4-kms-v3d) liest der
+# Kernel die Hotplug-Leitung selbst; hdmi_force_hotplug in config.txt ist
+# Firmware und wirkt dort nicht. Lässt das Display die Leitung kurz fallen,
+# meldet DRM "disconnected" und cog stürzt bei jedem Start ab, bis sie
+# zurückkommt. Das "D" am Ende erzwingt den Ausgang. Der Modus greift nur ohne
+# lesbare EDID — sonst nimmt der Kernel das native Timing des Panels.
+# Zero 2 W hat genau HDMI-A-1; ein Pi 4 mit dem Panel an Port 1 braucht HDMI-A-2.
+#   SMART_DISPLAY_HDMI_VIDEO=HDMI-A-2:1024x600@60D  anderer Wert, ersetzt einen
+#                                                   vorhandenen Eintrag
+#   SMART_DISPLAY_HDMI_VIDEO=                       nichts hinzufügen; ein
+#                                                   vorhandener Eintrag bleibt
+# Ohne Angabe bleibt ein von Hand gesetzter video=HDMI-A-1:-Eintrag unangetastet.
+HDMI_VIDEO="${SMART_DISPLAY_HDMI_VIDEO-HDMI-A-1:1024x600@60D}"
+HDMI_CONNECTOR="${HDMI_VIDEO%%:*}"
+CMDLINE_TXT="/boot/firmware/cmdline.txt"
+[[ -f "$CMDLINE_TXT" ]] || CMDLINE_TXT="/boot/cmdline.txt"
+if [[ -z "$HDMI_VIDEO" ]]; then
+    echo "  cmdline.txt: SMART_DISPLAY_HDMI_VIDEO leer — unverändert"
+elif [[ ! -s "$CMDLINE_TXT" ]] || grep -q $'\r' "$CMDLINE_TXT"; then
+    # Leer oder mit CRLF: anhängen würde nichts tun bzw. das letzte
+    # Kernel-Argument verderben. Lieber laut abbrechen.
+    echo "  Warnung: $CMDLINE_TXT fehlt, ist leer oder hat CRLF — video=${HDMI_VIDEO} manuell setzen." >&2
+else
+    current="$(grep -oE "(^|[[:space:]])video=${HDMI_CONNECTOR}:[^[:space:]]*" "$CMDLINE_TXT" \
+        | head -1 | sed -E 's/^[[:space:]]+//' || true)"
+    if [[ "$current" == "video=${HDMI_VIDEO}" ]]; then
+        echo "  cmdline.txt: video=${HDMI_VIDEO} schon gesetzt"
+    elif [[ -n "$current" && -z "${SMART_DISPLAY_HDMI_VIDEO+set}" ]]; then
+        echo "  cmdline.txt: ${current} vorhanden, unverändert (SMART_DISPLAY_HDMI_VIDEO setzen, um ihn zu ersetzen)"
+    else
+        [[ -f "$CMDLINE_TXT.before-smart-display" ]] \
+            || cp -p "$CMDLINE_TXT" "$CMDLINE_TXT.before-smart-display"
+        if [[ -n "$current" ]]; then
+            sed -i -E "s#(^|[[:space:]])${current}([[:space:]]|\$)#\1video=${HDMI_VIDEO}\2#" "$CMDLINE_TXT"
+        else
+            # cmdline.txt ist genau eine Zeile; anhängen ans Zeilenende.
+            sed -i "1 s|\$| video=${HDMI_VIDEO}|" "$CMDLINE_TXT"
+        fi
+        echo "  cmdline.txt: video=${HDMI_VIDEO} gesetzt (wirkt nach Reboot)"
+    fi
+fi
 
 # zram-Swap (128 MB komprimiert im RAM, keine SD-Schreibzugriffe).
 if [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" && "$HAS_RPI_SWAP" == "true" ]]; then

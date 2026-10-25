@@ -11,6 +11,20 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-10-25
+
+### Behoben
+
+- Der Kiosk sperrt sich nicht mehr aus, wenn das Display kurz die
+  HDMI-Hotplug-Leitung fallen lässt. Unter vollem KMS meldete der Kernel den
+  Ausgang dann als `disconnected`, und cog scheiterte bei jedem Start mit
+  „Failed to initialize DRM“ — am 2026-10-25 nach einem Deploy 9 Minuten lang,
+  obwohl das Display angeschlossen war. `install-pi.sh` setzt jetzt
+  `video=HDMI-A-1:1024x600@60D` in `cmdline.txt` (Sicherung daneben), weil
+  `hdmi_force_hotplug` in `config.txt` unter KMS nicht wirkt; abweichender
+  Wert oder abschalten über `SMART_DISPLAY_HDMI_VIDEO`
+  ([#16](https://github.com/phobits/pi-hub/issues/16)).
+
 ## [0.11.2] - 2026-10-25
 
 ### Behoben
@@ -494,7 +508,8 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.2...HEAD
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.3...HEAD
+[0.11.3]: https://github.com/phobits/pi-hub/compare/v0.11.2...v0.11.3
 [0.11.2]: https://github.com/phobits/pi-hub/compare/v0.11.1...v0.11.2
 [0.11.1]: https://github.com/phobits/pi-hub/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/phobits/pi-hub/compare/v0.10.0...v0.11.0

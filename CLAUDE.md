@@ -141,10 +141,15 @@ and is the wrong tool for a code change. Target host comes from `PI_HOST`
 Drei Dinge, die `deploy-pi.sh` bewusst **nicht** kann, und die deshalb
 `install-pi.sh` brauchen:
 
-- **Drop-ins, sudoers, config.txt.** Schritt 8 des Installers legt
+- **Drop-ins, sudoers, config.txt, cmdline.txt.** Schritt 8 des Installers legt
   `/etc/systemd/journald.conf.d/`, `/etc/systemd/system.conf.d/`,
-  `/etc/sudoers.d/smart-display`, `dtparam=watchdog=on` und optional
-  `dtoverlay=gpio-shutdown` an. Nichts davon erreicht der rsync.
+  `/etc/sudoers.d/smart-display`, `dtparam=watchdog=on`, optional
+  `dtoverlay=gpio-shutdown` und `video=HDMI-A-1:1024x600@60D` in `cmdline.txt` an.
+  Nichts davon erreicht der rsync. Der `video=`-Eintrag (#16) erzwingt HDMI als
+  verbunden: Unter vollem KMS liest der Kernel die Hotplug-Leitung selbst,
+  `hdmi_force_hotplug` in `config.txt` wirkt dort nicht. Fällt die Leitung
+  kurz, meldet DRM sonst `disconnected` und cog scheitert bei jedem Start mit
+  „Failed to initialize DRM“, bis sie zurückkommt.
 
 - **Geänderte systemd-Units.** `install-pi.sh` *kopiert* `deploy/systemd/*.service`
   nach `/etc/systemd/system/` (kein Symlink). Der rsync erreicht nur
