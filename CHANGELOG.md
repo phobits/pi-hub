@@ -11,6 +11,25 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-25
+
+### Geändert
+
+- Seitenwisch und Bildschirmschoner teilen sich eine Gestenerkennung
+  (`createGestureTracker`) statt zweier Kopien. Dabei behoben: Ein Touch-Ende
+  wird über die Kennung des verfolgten Fingers gefunden, und eine Geste, deren
+  Ende-Ereignis nie ankam, sperrt die andere Ereignisart nach 1,5 s nicht mehr
+  aus. Ein zweiter Finger bricht die Geste jetzt auch auf dem Pointer-Pfad ab,
+  und eine beim Schließen des Bildschirmschoners noch laufende Geste wird
+  verworfen ([#14](https://github.com/phobits/pi-hub/issues/14)).
+- README gekürzt, durchgehend englisch, ohne gerätespezifische Adressen.
+
+### Hinzugefügt
+
+- `scripts/check-gestures.py`: prüft die Touch-Gesten in WebKit und Chromium
+  gegen den Demo-Server, mit Selbsttest
+  ([#14](https://github.com/phobits/pi-hub/issues/14)).
+
 ## [0.11.0] - 2026-10-25
 
 ### Hinzugefügt
@@ -453,7 +472,8 @@ Erste Version. Nie getaggt; entstanden zwischen dem 2026-04-08 und 2026-04-15.
   Abbruch bei abweichendem Bind.
 - `install-pi.sh` plus systemd-Units für Backend und Chromium-Kiosk.
 
-[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/phobits/pi-hub/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/phobits/pi-hub/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/phobits/pi-hub/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/phobits/pi-hub/compare/v0.9.2...v0.10.0
 [0.9.2]: https://github.com/phobits/pi-hub/compare/v0.9.1...v0.9.2

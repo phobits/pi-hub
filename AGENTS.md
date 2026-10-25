@@ -127,6 +127,10 @@ Für lokale UI-Prüfung:
   rendert alle Faces und Zustände (Leerlauf, Timer, Nacht, leer, offline,
   Screensaver, Sheet, Alarm) gegen den Demo-Server — headless Chromium, nicht
   WebKit; der Gerätecheck bleibt.
+- Touch-Gesten (Seitenwisch, Schnellmenü, Screensaver): `python3 scripts/check-gestures.py`
+  gegen den Demo-Server, WebKit und Chromium; `--self-test` prüft, dass das Skript
+  eine eingebaute Störung erkennt. Beide Flächen teilen sich `createGestureTracker`
+  in `app.js` — Engine-Handling (Pointer/Touch, Abbruch) nur dort ändern.
 
 Wenn du Layout, Typografie, Zustandsdarstellung oder Informationsdichte änderst, validiere den Stand nicht nur logisch, sondern visuell.
 

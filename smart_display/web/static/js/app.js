@@ -13,7 +13,6 @@
   let screenAnimationTimer = null;
   let queueRefreshTimer = null;
   let queueRequestInFlight = false;
-  let swipeStart = null;
   let suppressClickUntil = 0;
   const SCREEN_TRANSITION_MS = 220;
   const QUEUE_REFRESH_MS = 30_000;
@@ -2099,48 +2098,138 @@
     return Boolean(target && target.closest && target.closest("input, label"));
   }
 
-  // The gesture is tracked from whichever event family fires first and stays
-  // locked to it, so engines that emit both Pointer and Touch events cannot
-  // process one swipe twice. WPE (the kiosk engine) and Blink (what local
-  // checks run against) differ here, so neither family is assumed.
-  function beginSwipe(source, id, x, y, target) {
-    if (screensaverActive || swipeTargetIsInteractive(target)) {
-      swipeStart = null;
-      return;
+  // ---- Gesture tracker (Ticket #14) -------------------------------------
+  // One tracker per surface — the page stage and the screensaver — so the
+  // engine handling below exists once. A gesture is tracked from whichever
+  // event family fires first and stays locked to it, so engines that emit
+  // both Pointer and Touch events cannot process one touch twice. WPE (the
+  // kiosk engine) and Blink (what local checks run against) differ here, so
+  // neither family is assumed.
+  //
+  //   onBegin({ source, x, y, target }) → false ignores the touch
+  //   onFinish({ source, startX, startY, dx, dy, cancelled }) — only for
+  //     gestures that ended within SWIPE_MAX_MS; older ones cannot qualify
+  //   onAbort() — optional, a second finger came down
+  // The returned reset() drops whatever is in flight.
+  //
+  // On cancel (the engine took the touch over for its own scrolling or
+  // navigation) the last tracked position stands in for the end point, so a
+  // swipe that already qualified still lands.
+  function createGestureTracker(element, { onBegin, onFinish, onAbort }) {
+    const opts = { passive: true };
+    let gesture = null;
+
+    function begin(source, id, x, y, target) {
+      const now = performance.now();
+      // The family lock expires with the gesture itself: a gesture older than
+      // SWIPE_MAX_MS can no longer qualify, so an end event the engine never
+      // delivered must not shut the other family out for good.
+      if (gesture && gesture.source !== source && now - gesture.at <= SWIPE_MAX_MS) {
+        return;
+      }
+      // A rejected touch still holds the lock, so the other family's start
+      // event for the same finger cannot run onBegin a second time.
+      const ignored = onBegin({ source, x, y, target }) === false;
+      gesture = { source, id, x, y, lastX: x, lastY: y, at: now, ignored };
     }
-    if (swipeStart && swipeStart.source !== source) {
-      return; // another family already owns this gesture
+
+    function owns(source, id) {
+      return Boolean(gesture && gesture.source === source && gesture.id === id);
     }
-    swipeStart = { source, id, x, y, lastX: x, lastY: y, at: performance.now() };
-    // Deliberately no setPointerCapture: pointer events already bubble to the
-    // stage, and capturing on an ancestor retargets the compatibility mouse
-    // events, which would swallow taps on the buttons we just made swipeable.
+
+    function abort() {
+      gesture = null;
+      if (onAbort) onAbort();
+    }
+
+    function track(source, id, x, y) {
+      if (!owns(source, id) || gesture.ignored) return;
+      gesture.lastX = x;
+      gesture.lastY = y;
+    }
+
+    // `x`/`y` are omitted on cancel.
+    function finish(source, id, x, y) {
+      if (!owns(source, id)) return;
+      const started = gesture;
+      gesture = null;
+      if (started.ignored || performance.now() - started.at > SWIPE_MAX_MS) return;
+      const cancelled = typeof x !== "number";
+      onFinish({
+        source,
+        startX: started.x,
+        startY: started.y,
+        dx: (cancelled ? started.lastX : x) - started.x,
+        dy: (cancelled ? started.lastY : y) - started.y,
+        cancelled,
+      });
+    }
+
+    // The tracked finger, looked up by identifier: with a second finger on
+    // the panel, changedTouches can lead with the other one.
+    function trackedTouch(event) {
+      const list = event.changedTouches || [];
+      for (let i = 0; i < list.length; i += 1) {
+        if (owns("touch", list[i].identifier)) return list[i];
+      }
+      return null;
+    }
+
+    element.addEventListener("pointerdown", (event) => {
+      // A second finger, on engines that report touch only as pointers.
+      if (event.isPrimary === false) {
+        abort();
+        return;
+      }
+      if (typeof event.button === "number" && event.button !== 0) {
+        return;
+      }
+      begin("pointer", event.pointerId, event.clientX, event.clientY, event.target);
+    }, opts);
+    element.addEventListener("pointermove", (event) => {
+      track("pointer", event.pointerId, event.clientX, event.clientY);
+    }, opts);
+    element.addEventListener("pointerup", (event) => {
+      finish("pointer", event.pointerId, event.clientX, event.clientY);
+    }, opts);
+    element.addEventListener("pointercancel", (event) => {
+      finish("pointer", event.pointerId);
+    }, opts);
+    // Touch fallback for engines whose Pointer Events are incomplete for
+    // touch input, and so a gesture the engine cancels mid-way still lands.
+    element.addEventListener("touchstart", (event) => {
+      if (event.touches && event.touches.length > 1) {
+        abort();
+        return;
+      }
+      const touch = event.changedTouches && event.changedTouches[0];
+      if (touch) begin("touch", touch.identifier, touch.clientX, touch.clientY, event.target);
+    }, opts);
+    element.addEventListener("touchmove", (event) => {
+      const touch = trackedTouch(event);
+      if (touch) track("touch", touch.identifier, touch.clientX, touch.clientY);
+    }, opts);
+    element.addEventListener("touchend", (event) => {
+      const touch = trackedTouch(event);
+      if (touch) finish("touch", touch.identifier, touch.clientX, touch.clientY);
+    }, opts);
+    element.addEventListener("touchcancel", (event) => {
+      const touch = trackedTouch(event);
+      if (touch) finish("touch", touch.identifier);
+    }, opts);
+
+    return {
+      reset() {
+        gesture = null;
+      },
+    };
   }
 
-  function trackSwipe(source, id, x, y) {
-    if (!swipeStart || swipeStart.source !== source || swipeStart.id !== id) {
-      return;
-    }
-    swipeStart.lastX = x;
-    swipeStart.lastY = y;
+  function beginPageSwipe({ target }) {
+    return !(screensaverActive || swipeTargetIsInteractive(target));
   }
 
-  // `x`/`y` are omitted when the engine cancels the gesture (it took the touch
-  // over for its own scrolling/navigation); the last tracked position is used
-  // instead, so a swipe that already qualified still lands.
-  function finishSwipe(source, id, x, y) {
-    if (!swipeStart || swipeStart.source !== source || swipeStart.id !== id) {
-      return;
-    }
-    const gesture = swipeStart;
-    swipeStart = null;
-    const endX = typeof x === "number" ? x : gesture.lastX;
-    const endY = typeof y === "number" ? y : gesture.lastY;
-    const dx = endX - gesture.x;
-    const dy = endY - gesture.y;
-    if (performance.now() - gesture.at > SWIPE_MAX_MS) {
-      return;
-    }
+  function finishPageSwipe({ dx, dy }) {
     // Ticket #2/#3: a clear upward swipe opens the quick sheet. Same length
     // and axis-ratio thresholds as the horizontal page swipe, mirrored.
     if (-dy >= SWIPE_MIN_X && Math.abs(dy) > Math.abs(dx) * SWIPE_AXIS_RATIO) {
@@ -2164,64 +2253,6 @@
       return;
     }
     setActiveScreen(target);
-  }
-
-  function handleSwipeStart(event) {
-    if (
-      event.isPrimary === false ||
-      (typeof event.button === "number" && event.button !== 0)
-    ) {
-      return;
-    }
-    beginSwipe("pointer", event.pointerId, event.clientX, event.clientY, event.target);
-  }
-
-  function handleSwipeMove(event) {
-    trackSwipe("pointer", event.pointerId, event.clientX, event.clientY);
-  }
-
-  function handleSwipeEnd(event) {
-    finishSwipe("pointer", event.pointerId, event.clientX, event.clientY);
-  }
-
-  function handleSwipeCancel(event) {
-    finishSwipe("pointer", event.pointerId);
-  }
-
-  function touchPoint(event) {
-    return event.changedTouches && event.changedTouches[0];
-  }
-
-  function handleTouchStart(event) {
-    if (event.touches && event.touches.length > 1) {
-      swipeStart = null;
-      return;
-    }
-    const touch = touchPoint(event);
-    if (touch) {
-      beginSwipe("touch", touch.identifier, touch.clientX, touch.clientY, event.target);
-    }
-  }
-
-  function handleTouchMove(event) {
-    const touch = touchPoint(event);
-    if (touch) {
-      trackSwipe("touch", touch.identifier, touch.clientX, touch.clientY);
-    }
-  }
-
-  function handleTouchEnd(event) {
-    const touch = touchPoint(event);
-    if (touch) {
-      finishSwipe("touch", touch.identifier, touch.clientX, touch.clientY);
-    }
-  }
-
-  function handleTouchCancel(event) {
-    const touch = touchPoint(event);
-    if (touch) {
-      finishSwipe("touch", touch.identifier);
-    }
   }
 
   // ---- Detail-screen seek ------------------------------------------------
@@ -2674,11 +2705,8 @@
   // ---- Screensaver gestures (Ticket #13) ---------------------------------
   // A tap on the photos does nothing: a horizontal swipe pages them, and a
   // touch on the clock (or a double tap anywhere) wakes the panel. Night is
-  // the exception — any touch wakes there. The wake
-  // fires on touch-down — the same moment the old single tap did — so
-  // whatever click the engine synthesises afterwards behaves as before.
-  // Family locking as in beginSwipe: WPE may emit Pointer and Touch events
-  // for one touch.
+  // the exception — any touch wakes there. The touch handling itself is the
+  // shared createGestureTracker.
   const DOUBLE_TAP_MS = 450;
   const DOUBLE_TAP_SLOP = 48;
   const TAP_SLOP = 24;
@@ -2692,11 +2720,9 @@
   // emit no click (a long press).
   const WAKE_CLICK_SUPPRESS_MS = 700;
   let suppressWakeClickUntil = 0;
-  let screensaverGesture = null;
   let screensaverLastTap = null;
 
   function wakeFromScreensaver() {
-    screensaverGesture = null;
     screensaverLastTap = null;
     suppressWakeClickUntil = performance.now() + WAKE_CLICK_SUPPRESS_MS;
     exitScreensaver();
@@ -2726,12 +2752,9 @@
     });
   }
 
-  function beginScreensaverGesture(source, id, x, y) {
+  function beginScreensaverGesture({ source, x, y }) {
     if (!screensaverActive) {
-      return;
-    }
-    if (screensaverGesture && screensaverGesture.source !== source) {
-      return; // another family already owns this touch
+      return false;
     }
     // At night there are no photos to page, so any touch wakes, as before.
     // Same for mode "" — the first photo is not painted yet (or failed to
@@ -2742,106 +2765,48 @@
       pointIsOnScreensaverClock(x, y)
     ) {
       wakeFromScreensaver();
-      return;
+      return false;
     }
-    const now = performance.now();
     const lastTap = screensaverLastTap;
     if (
       lastTap &&
       lastTap.source === source &&
-      now - lastTap.at <= DOUBLE_TAP_MS &&
+      performance.now() - lastTap.at <= DOUBLE_TAP_MS &&
       Math.abs(x - lastTap.x) <= DOUBLE_TAP_SLOP &&
       Math.abs(y - lastTap.y) <= DOUBLE_TAP_SLOP
     ) {
       wakeFromScreensaver();
-      return;
+      return false;
     }
-    screensaverGesture = { source, id, x, y, lastX: x, lastY: y, at: now };
+    return true;
   }
 
-  function trackScreensaverGesture(source, id, x, y) {
-    const gesture = screensaverGesture;
-    if (!gesture || gesture.source !== source || gesture.id !== id) {
-      return;
-    }
-    gesture.lastX = x;
-    gesture.lastY = y;
-  }
-
-  // `x`/`y` are omitted on cancel: a qualified swipe still pages, but a
-  // cancelled touch never counts as the first half of a double tap.
-  function finishScreensaverGesture(source, id, x, y) {
-    const gesture = screensaverGesture;
-    if (!gesture || gesture.source !== source || gesture.id !== id) {
-      return;
-    }
-    screensaverGesture = null;
+  // A cancelled touch still pages when it qualified as a swipe, but never
+  // counts as the first half of a double tap.
+  function finishScreensaverGesture({ source, startX, startY, dx, dy, cancelled }) {
     screensaverLastTap = null;
-    const cancelled = typeof x !== "number";
-    const dx = (cancelled ? gesture.lastX : x) - gesture.x;
-    const dy = (cancelled ? gesture.lastY : y) - gesture.y;
-    const now = performance.now();
-    if (now - gesture.at > SWIPE_MAX_MS) {
-      return;
-    }
     if (Math.abs(dx) >= SWIPE_MIN_X && Math.abs(dx) >= Math.abs(dy) * SWIPE_AXIS_RATIO) {
       stepScreensaverImage(dx < 0 ? 1 : -1);
       return;
     }
     if (!cancelled && Math.abs(dx) <= TAP_SLOP && Math.abs(dy) <= TAP_SLOP) {
-      screensaverLastTap = { source, x: gesture.x, y: gesture.y, at: now };
+      screensaverLastTap = { source, x: startX, y: startY, at: performance.now() };
     }
   }
 
-  function handleScreensaverPointerDown(event) {
-    if (
-      event.isPrimary === false ||
-      (typeof event.button === "number" && event.button !== 0)
-    ) {
-      return;
-    }
-    beginScreensaverGesture("pointer", event.pointerId, event.clientX, event.clientY);
-  }
-
-  function handleScreensaverTouchStart(event) {
-    if (event.touches && event.touches.length > 1) {
-      screensaverGesture = null;
-      screensaverLastTap = null;
-      return;
-    }
-    const touch = touchPoint(event);
-    if (touch) {
-      beginScreensaverGesture("touch", touch.identifier, touch.clientX, touch.clientY);
-    }
-  }
+  // Reset on every enter and exit: a finger still down when the screensaver
+  // closes lifts onto the stage, so this tracker never sees that touch end.
+  let screensaverGestures = null;
 
   function bindScreensaverGestures() {
-    const el = nodes.screensaver;
-    const opts = { passive: true };
     window.addEventListener("click", swallowWakeClick, true);
-    el.addEventListener("pointerdown", handleScreensaverPointerDown, opts);
-    el.addEventListener("pointermove", (event) => {
-      trackScreensaverGesture("pointer", event.pointerId, event.clientX, event.clientY);
-    }, opts);
-    el.addEventListener("pointerup", (event) => {
-      finishScreensaverGesture("pointer", event.pointerId, event.clientX, event.clientY);
-    }, opts);
-    el.addEventListener("pointercancel", (event) => {
-      finishScreensaverGesture("pointer", event.pointerId);
-    }, opts);
-    el.addEventListener("touchstart", handleScreensaverTouchStart, opts);
-    el.addEventListener("touchmove", (event) => {
-      const touch = touchPoint(event);
-      if (touch) trackScreensaverGesture("touch", touch.identifier, touch.clientX, touch.clientY);
-    }, opts);
-    el.addEventListener("touchend", (event) => {
-      const touch = touchPoint(event);
-      if (touch) finishScreensaverGesture("touch", touch.identifier, touch.clientX, touch.clientY);
-    }, opts);
-    el.addEventListener("touchcancel", (event) => {
-      const touch = touchPoint(event);
-      if (touch) finishScreensaverGesture("touch", touch.identifier);
-    }, opts);
+    screensaverGestures = createGestureTracker(nodes.screensaver, {
+      onBegin: beginScreensaverGesture,
+      onFinish: finishScreensaverGesture,
+      onAbort: () => {
+        screensaverLastTap = null;
+      },
+    });
   }
 
   function stopSlideshow() {
@@ -2905,8 +2870,8 @@
     // first frame is current rather than up to 59 s old.
     nodes.screensaverTime.textContent = CLOCK_TIME_FMT.format(new Date());
     screensaverMode = "";
-    screensaverGesture = null;
     screensaverLastTap = null;
+    if (screensaverGestures) screensaverGestures.reset();
     resetScreensaverHistory();
     refreshScreensaverPresentation();
     notifyScreensaverState(true);
@@ -2922,6 +2887,7 @@
       return;
     }
     screensaverActive = false;
+    if (screensaverGestures) screensaverGestures.reset();
     nodes.screensaver.classList.remove("is-active");
     nodes.screensaver.setAttribute("aria-hidden", "true");
     stopSlideshow();
@@ -3409,17 +3375,10 @@
 
     if (nodes.screenStage) {
       nodes.spotifyScreen.setAttribute("inert", "");
-      nodes.screenStage.addEventListener("pointerdown", handleSwipeStart, { passive: true });
-      nodes.screenStage.addEventListener("pointermove", handleSwipeMove, { passive: true });
-      nodes.screenStage.addEventListener("pointerup", handleSwipeEnd, { passive: true });
-      nodes.screenStage.addEventListener("pointercancel", handleSwipeCancel, { passive: true });
-      // Touch fallback for engines whose Pointer Events are incomplete for
-      // touch input, and so a gesture the engine cancels mid-way still lands.
-      // beginSwipe locks the gesture to one family, so this cannot double-fire.
-      nodes.screenStage.addEventListener("touchstart", handleTouchStart, { passive: true });
-      nodes.screenStage.addEventListener("touchmove", handleTouchMove, { passive: true });
-      nodes.screenStage.addEventListener("touchend", handleTouchEnd, { passive: true });
-      nodes.screenStage.addEventListener("touchcancel", handleTouchCancel, { passive: true });
+      createGestureTracker(nodes.screenStage, {
+        onBegin: beginPageSwipe,
+        onFinish: finishPageSwipe,
+      });
       nodes.screenStage.addEventListener(
         "click",
         (event) => {
