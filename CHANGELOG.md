@@ -11,6 +11,19 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-26
+
+### Geändert
+
+- Warnnamen („Orange Windwarnung“) baut nur noch der Server
+  (`weather_codes.warning_title`) und schickt sie als `title` mit; das
+  Frontend hat keine eigene Tabelle mehr. Stufen-Bezeichnung und -Adjektiv
+  stehen in einer Tabelle ([#22](https://github.com/phobits/pi-hub/issues/22)).
+- Ein Zeitstempel-Parser (`weather_detail.parse_utc`) statt zwei, eine
+  Wochentagstabelle (`weather_codes.WEEKDAY_SHORT`) statt zwei.
+- Der Warnungsabruf liest die bisherige Gemeinde nur noch einmal aus dem
+  Store statt alle 5 Minuten den ganzen Zustand zu kopieren.
+
 ## [0.13.0] - 2026-10-26
 
 ### Hinzugefügt

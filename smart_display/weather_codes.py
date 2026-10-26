@@ -123,3 +123,38 @@ def geosphere_condition(symbol: object, is_day: bool | None = True) -> tuple[str
     number = _as_code(symbol)
     entry = GEOSPHERE_SYMBOLS.get(number) if number is not None else None
     return _with_daylight(entry, is_day) if entry else UNKNOWN
+
+
+# GeoSphere warn API ``warntypid`` / ``warnstufeid``. The display name
+# ("Orange Windwarnung") is built here and sent with every warning, so the
+# frontend has no table of its own to keep in step.
+WARN_TYPES = {
+    1: "Wind",
+    2: "Regen",
+    3: "Schnee",
+    4: "Glatteis",
+    5: "Gewitter",
+    6: "Hitze",
+    7: "Kälte",
+}
+# Level: (label, adjective before "…warnung") — one table, so a new level
+# cannot be accepted by the parser and lose its colour in the title.
+_WARN_LEVEL_NAMES = {1: ("Gelb", "Gelbe"), 2: ("Orange", "Orange"), 3: ("Rot", "Rote")}
+WARN_LEVELS = {level: label for level, (label, _adjective) in _WARN_LEVEL_NAMES.items()}
+
+
+def _code(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def warning_title(warn_type: object, level: object) -> str:
+    """"Orange Windwarnung"; an unknown type is a plain "Wetterwarnung",
+    an unknown level drops the colour rather than guessing one."""
+    kind = WARN_TYPES.get(_code(warn_type))
+    name = f"{kind}warnung" if kind else "Wetterwarnung"
+    names = _WARN_LEVEL_NAMES.get(_code(level))
+    return f"{names[1]} {name}" if names else name
+
+
+# Duden abbreviations, Monday first (date.weekday()); app.js mirrors them.
+WEEKDAY_SHORT = ("Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa.", "So.")

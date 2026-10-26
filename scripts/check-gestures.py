@@ -127,8 +127,8 @@ WARNINGS_BOOT_JS = """
   let boot;
   const at = (h) => new Date(Date.now() + h * 3600e3).toISOString();
   const long = "* Äste können herabstürzen und Gegenstände herumgewirbelt werden.\\n".repeat(12);
-  const warning = (id, level, type, b, e) => ({
-    id, version: 1, type, level, type_label: "", level_label: "",
+  const warning = (id, level, type, b, e, title) => ({
+    id, version: 1, type, level, type_label: "", level_label: "", title,
     begins_at: at(b), ends_at: at(e), visible_until: at(e),
     text: "Warnung", impacts: long, recommendations: long, meteo_text: long,
   });
@@ -139,7 +139,9 @@ WARNINGS_BOOT_JS = """
       value.state.weather_warnings = {
         snapshot: { status: "ok", updated_at: at(0), source: "geosphere-warnings" },
         municipality_id: "90101", municipality_name: "Wien-Innere Stadt",
-        items: [warning("a", 2, 1, -1, 5), warning("b", 1, 2, 2, 8), warning("c", 1, 5, 4, 9)],
+        items: [warning("a", 2, 1, -1, 5, "Orange Windwarnung"),
+               warning("b", 1, 2, 2, 8, "Gelbe Regenwarnung"),
+               warning("c", 1, 5, 4, 9, "Gelbe Gewitterwarnung")],
       };
       boot = value;
     },

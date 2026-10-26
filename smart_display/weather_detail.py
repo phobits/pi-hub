@@ -9,7 +9,8 @@ stays cheap:
   other model.
 * ``prepare_warnings`` sorts the warnings and gives each one the moment it
   stops being shown (``visible_until``), so the frontend only compares
-  timestamps — an expired warning disappears on time without a new fetch.
+  timestamps — an expired warning disappears on time without a new fetch —
+  and its display name (``title``), so the frontend has no name table.
 
 Both functions are pure; ``app.js`` mirrors only the comparison with the
 clock (``visibleWarnings``).
@@ -18,6 +19,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+from smart_display.weather_codes import warning_title
 
 # Usable last-good data, in the order a source is trusted. ``error`` still
 # carries the last good series and its age, so it beats a source with none.
@@ -33,7 +36,10 @@ UNBOUNDED_WARNING_HOLD = timedelta(hours=3)
 SCREENSAVER_LOOKAHEAD = timedelta(hours=24)
 
 
-def _parse(value: Any) -> datetime | None:
+def parse_utc(value: Any) -> datetime | None:
+    """An ISO timestamp ("2026-10-26T09:00+00:00", "…Z") as aware UTC. The
+    one parser for provider and request time; an unzoned stamp is ambiguous
+    and gives None rather than a guess."""
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -43,6 +49,9 @@ def _parse(value: Any) -> datetime | None:
     if moment.tzinfo is None:
         return None
     return moment.astimezone(timezone.utc)
+
+
+_parse = parse_utc
 
 
 def _covers(series: dict, now: datetime) -> bool:
@@ -111,7 +120,13 @@ def prepare_warnings(section: dict, now: datetime) -> dict:
         until = warning_visible_until(item, fetched_at)
         if until is None or until <= now:
             continue
-        items.append({**item, "visible_until": until.isoformat()})
+        items.append(
+            {
+                **item,
+                "visible_until": until.isoformat(),
+                "title": warning_title(item.get("type"), item.get("level")),
+            }
+        )
     items.sort(key=_sort_key)
     return {**section, "items": items}
 

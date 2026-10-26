@@ -21,7 +21,7 @@ from smart_display.providers.caldav_provider import build_calendar_sections
 from smart_display.providers.base import BaseProvider
 from smart_display.state_store import StateStore
 from smart_display.sun import is_daylight, sun_times
-from smart_display.weather_codes import geosphere_condition, wmo_condition
+from smart_display.weather_codes import WEEKDAY_SHORT, geosphere_condition, wmo_condition
 
 
 class MockProvider(BaseProvider):
@@ -147,7 +147,7 @@ class MockProvider(BaseProvider):
             icon, _ = wmo_condition(code, is_day=None)
             forecast.append(
                 WeatherForecastItem(
-                    day_label=("Heute", "Morgen")[index] if index < 2 else _weekday(day),
+                    day_label=("Heute", "Morgen")[index] if index < 2 else WEEKDAY_SHORT[day.weekday()],
                     condition=label,
                     condition_code=code,
                     temperature_max_c=high,
@@ -237,7 +237,3 @@ class MockProvider(BaseProvider):
             interval_minutes=15,
             points=points,
         )
-
-
-def _weekday(day) -> str:
-    return ("Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa.", "So.")[day.weekday()]

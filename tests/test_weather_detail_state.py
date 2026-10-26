@@ -21,7 +21,7 @@ from smart_display.models import (
 )
 from smart_display.state_store import DETAIL_SECTIONS, StateStore
 from smart_display.sun import is_daylight, sun_times
-from smart_display.weather_codes import geosphere_condition, wmo_condition
+from smart_display.weather_codes import geosphere_condition, warning_title, wmo_condition
 from smart_display.weather_detail import (
     UNBOUNDED_WARNING_HOLD,
     prepare_warnings,
@@ -117,6 +117,18 @@ class WarningRulesTest(unittest.TestCase):
             warning("d", level=3, begins=NOW - h, ends=NOW + 6 * h),
         )
         self.assertEqual([i["id"] for i in prepare_warnings(section, NOW)["items"]], ["d", "b", "c", "a"])
+
+    def test_each_warning_carries_its_display_name(self) -> None:
+        section = warnings_section(warning("a", level=2, wtype=1, begins=NOW, ends=NOW + timedelta(hours=1)))
+        self.assertEqual(prepare_warnings(section, NOW)["items"][0]["title"], "Orange Windwarnung")
+
+    def test_display_names_never_guess(self) -> None:
+        self.assertEqual(warning_title(3, 1), "Gelbe Schneewarnung")
+        self.assertEqual(warning_title(7, 3), "Rote Kältewarnung")
+        self.assertEqual(warning_title(9, 2), "Orange Wetterwarnung")
+        self.assertEqual(warning_title(5, None), "Gewitterwarnung")
+        self.assertEqual(warning_title(None, None), "Wetterwarnung")
+        self.assertEqual(warning_title(True, True), "Wetterwarnung", "a bool is not a code")
 
     def test_valid_end_is_the_visibility_end_and_exclusive(self) -> None:
         ends = NOW + timedelta(hours=2)

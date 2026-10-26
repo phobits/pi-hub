@@ -1906,16 +1906,6 @@
     "geosphere-warnings": "GeoSphere Austria",
     "open-meteo": "Open-Meteo",
   };
-  const WARN_TYPE_NAMES = {
-    1: "Windwarnung",
-    2: "Regenwarnung",
-    3: "Schneewarnung",
-    4: "Glatteiswarnung",
-    5: "Gewitterwarnung",
-    6: "Hitzewarnung",
-    7: "Kältewarnung",
-  };
-  const WARN_LEVEL_ADJECTIVES = { 1: "Gelbe", 2: "Orange", 3: "Rote" };
   const WIND_DIRECTIONS = ["Nord", "Nordost", "Ost", "Südost", "Süd", "Südwest", "West", "Nordwest"];
   // Order of "how much this matters" when one icon stands for three hours.
   const ICON_WEIGHT = {
@@ -2050,9 +2040,8 @@
   }
 
   function warningName(item) {
-    const type = WARN_TYPE_NAMES[item.type] || "Wetterwarnung";
-    const level = WARN_LEVEL_ADJECTIVES[item.level];
-    return level ? `${level} ${type}` : type;
+    // Built by the server (weather_codes.warning_title).
+    return item.title || "Wetterwarnung";
   }
 
   function warningTimePhrase(item, nowMs) {

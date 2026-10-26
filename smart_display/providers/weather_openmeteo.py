@@ -23,7 +23,7 @@ from smart_display.providers._parsing import (
 from smart_display.providers.base import BaseProvider
 from smart_display.state_store import StateStore
 from smart_display.sun import is_daylight
-from smart_display.weather_codes import WMO_CODES, wmo_condition
+from smart_display.weather_codes import WEEKDAY_SHORT, WMO_CODES, wmo_condition
 
 
 # One table for every WMO label (#22): the home line and the week bar must
@@ -309,12 +309,11 @@ def _short_day_label(index: int, raw_label: str) -> str:
         return "Heute"
     if index == 1:
         return "Morgen"
-    weekday_names = ["Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa.", "So."]
     try:
         parsed = date.fromisoformat(raw_label)
     except ValueError:
         return raw_label
-    return weekday_names[parsed.weekday()]
+    return WEEKDAY_SHORT[parsed.weekday()]
 
 
 def weather_icon_key(condition_code: int | None) -> str:

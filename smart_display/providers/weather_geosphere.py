@@ -36,7 +36,8 @@ from smart_display.providers._parsing import safe_float, safe_get, safe_index, s
 from smart_display.providers.base import BaseProvider
 from smart_display.state_store import StateStore
 from smart_display.sun import is_daylight
-from smart_display.weather_codes import geosphere_condition
+from smart_display.weather_codes import WARN_LEVELS, WARN_TYPES, geosphere_condition
+from smart_display.weather_detail import parse_utc
 
 DATASET_URL = "https://dataset.api.hub.geosphere.at/v1/timeseries/forecast"
 WARNINGS_URL = "https://warnungen.zamg.at/wsapp/api/getWarningsForCoords"
@@ -46,19 +47,6 @@ CLAEF_PARAMETERS = "2t,10u,10v,10fg,tp,sy"
 # The warn API's local times ("27.03.2023 08:00") are Austrian wall clock.
 WARN_ZONE = ZoneInfo("Europe/Vienna")
 MS_TO_KMH = 3.6
-
-
-def parse_utc(value: object) -> datetime | None:
-    """GeoSphere timestamps ("2026-10-26T09:00+00:00") as aware UTC."""
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if moment.tzinfo is None:
-        return None  # an unzoned stamp is ambiguous — do not guess
-    return moment.astimezone(timezone.utc)
 
 
 def wind_from_components(u: float | None, v: float | None) -> tuple[float | None, float | None]:
@@ -322,18 +310,6 @@ def _non_negative(value: float | None) -> float | None:
     return value
 
 
-WARN_TYPES = {
-    1: "Wind",
-    2: "Regen",
-    3: "Schnee",
-    4: "Glatteis",
-    5: "Gewitter",
-    6: "Hitze",
-    7: "Kälte",
-}
-WARN_LEVELS = {1: "Gelb", 2: "Orange", 3: "Rot"}
-
-
 def _epoch(value: object) -> datetime | None:
     seconds = safe_int(value)
     if seconds is None or seconds <= 0:
@@ -412,6 +388,10 @@ class WarningsProvider(BaseProvider):
         self._http = http_client or HttpClient()
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._backoff = Backoff(self.refresh_interval_seconds, monotonic=monotonic)
+        # Only to log a change of municipality; read from the store once,
+        # not on every refresh (get_state copies the whole state).
+        self._municipality_id: str | None = None
+        self._municipality_known = False
 
     @property
     def enabled(self) -> bool:
@@ -456,6 +436,8 @@ class WarningsProvider(BaseProvider):
                 # — calm, not an outage. Any other 404 (a moved endpoint, a
                 # proxy) is an outage and must say so.
                 self.logger.info("warnings: no municipality for the configured point")
+                self._municipality_id = None
+                self._municipality_known = True
                 self.state_store.update_section(
                     self.section_name,
                     WarningsState(
@@ -474,7 +456,11 @@ class WarningsProvider(BaseProvider):
             self._mark_error(f"{self.label}: ungültige Antwort ({exc})", transient=True)
             return
         self._backoff.success()
-        previous = self.state_store.get_state().weather_warnings.municipality_id
+        if not self._municipality_known:
+            self._municipality_id = self.state_store.get_state().weather_warnings.municipality_id
+            self._municipality_known = True
+        previous = self._municipality_id
+        self._municipality_id = state.municipality_id
         if previous and previous != state.municipality_id:
             self.logger.warning(
                 "warn municipality changed from %s to %s (%s)",

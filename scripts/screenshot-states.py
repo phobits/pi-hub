@@ -28,6 +28,9 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from smart_display.weather_codes import warning_title  # noqa: E402 — the name the server sends
+
 FACES = ["flip", "lcd", "pulse", "qlocktwo", "qlocktwo-ooe", "analog"]
 BOOT_RE = re.compile(r"(window\.__SMART_DISPLAY__ = )(\{.*?\})(;\s*</script>)", re.S)
 STALE_AT = "2026-10-15T13:10:00+00:00"
@@ -184,7 +187,6 @@ def _iso_in(hours: float) -> str:
 
 def _warning(wid, level, wtype, begins_h, ends_h, *, long=False):
     text = {1: "Wind", 2: "Regen", 3: "Schnee", 5: "Gewitter", 4: "Glatteis"}[wtype]
-    adjective = {1: "Gelbe", 2: "Orange", 3: "Rote"}[level]
     return {
         "id": wid,
         "version": 1,
@@ -192,10 +194,11 @@ def _warning(wid, level, wtype, begins_h, ends_h, *, long=False):
         "type_label": text,
         "level": level,
         "level_label": {1: "Gelb", 2: "Orange", 3: "Rot"}[level],
+        "title": warning_title(wtype, level),
         "begins_at": _iso_in(begins_h),
         "ends_at": _iso_in(ends_h),
         "visible_until": _iso_in(ends_h),
-        "text": f"{adjective} {text}warnung für Wien-Innere Stadt.",
+        "text": f"{warning_title(wtype, level)} für Wien-Innere Stadt.",
         "impacts": LONG_IMPACTS if long else "* Äste können herabstürzen.",
         "recommendations": LONG_ADVICE if long else "",
         "meteo_text": LONG_METEO if long else "",

@@ -561,6 +561,38 @@ class WarningsTest(_Base):
         self.warn.refresh()
         self.assertEqual(self.section("weather_warnings").snapshot.status, "disabled")
 
+    def test_municipality_is_read_from_the_store_once_and_a_change_is_logged(self) -> None:
+        reads = []
+        original = self.store.get_state
+
+        def counting_get_state():
+            reads.append(1)
+            return original()
+
+        self.store.get_state = counting_get_state
+        self.http.add_response("GET", self.url, body=load("warnings_vienna_none.json"))
+        for _ in range(3):
+            self.warn.refresh()
+        self.assertEqual(len(reads), 1)
+        moved = load("warnings_vienna_none.json")
+        moved["properties"]["location"]["properties"].update({"gemeindenr": 40101, "name": "Linz"})
+        self.http.add_response("GET", self.url, body=moved)
+        with self.assertLogs(self.warn.logger, "WARNING") as logs:
+            self.warn.refresh()
+        self.assertIn("90101 to 40101", logs.output[0])
+        self.assertEqual(len(reads), 1)
+
+    def test_no_change_logged_across_a_point_without_municipality(self) -> None:
+        self.http.queue("GET", self.url, body=load("warnings_vienna_none.json"))
+        self.http.queue("GET", self.url, status=404, body=load("warnings_outside.json"))
+        moved = load("warnings_vienna_none.json")
+        moved["properties"]["location"]["properties"].update({"gemeindenr": 40101, "name": "Linz"})
+        self.http.queue("GET", self.url, body=moved)
+        self.warn.refresh()
+        self.warn.refresh()
+        with self.assertNoLogs(self.warn.logger, "WARNING"):
+            self.warn.refresh()
+
     def test_other_404_is_an_outage_not_a_missing_municipality(self) -> None:
         self.past_grace()
         self.http.add_response("GET", self.url, status=404, body=b"<html>Not Found</html>")
