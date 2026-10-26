@@ -288,7 +288,8 @@ async def _wx_taps(run: Run):
     tomorrow = await run.page.evaluate(SELECTED_DAY)
     x, y = await run.page.evaluate(CENTER, '[data-wx-mode="rain"]')
     await run.tap(x, y)
-    rain = await run.page.evaluate("() => !document.getElementById('wx-rain-note').classList.contains('is-hidden')")
+    rain = await run.page.evaluate(
+        "() => document.querySelector('[data-wx-mode=\"rain\"]').classList.contains('is-selected')")
     screen = await run.page.evaluate(SCREEN)
     if not (far and tomorrow and rain and screen == "weather"):
         return f"far={far} tomorrow={tomorrow!r} rain={rain} screen={screen}"

@@ -363,9 +363,11 @@ class Run:
             raise RuntimeError("did not reach the weather screen")
 
     async def minutes(self, count: int) -> None:
-        for _ in range(count):
-            await self.page.clock.run_for(60_000)
-            await self.page.wait_for_timeout(5)
+        """Fake time forward in 5 s steps: shorter than the 10 s request
+        timeout, so a poll gets a real pause to land before it could abort."""
+        for _ in range(count * 12):
+            await self.page.clock.run_for(5000)
+            await self.page.wait_for_timeout(10)
 
     async def warning_line(self) -> str:
         return await self.text("#screensaver-warning-text") if await self.shown("#screensaver-warning") else ""
@@ -461,9 +463,9 @@ async def _not_modified(run: Run):
 
 # #22 changed this deliberately: the screensaver shows official warnings, so
 # it polls every 5 min instead of not at all (≤ 24 polls in 2 h, not ~1400).
-# Loose bounds: the fake clock jumps a minute per step and each awaited poll
-# lets the cadence slip by real time, so the count varies (13–24 seen). The
-# floor (one poll per 15 min) still catches a cadence that broke or stretched.
+# ``minutes`` steps 5 s at a time, so no poll is aborted by the fake clock
+# outrunning its 10 s timeout (60 s jumps did that: 5–24 polls seen). The
+# floor still catches a cadence that broke or stretched.
 # Those polls never feed the lost-link hint — the second hour has no backend.
 @case("Zwei Stunden Screensaver: langsamer Poll, kein Fehlalarm, danach wird ein Ausfall erkannt")
 async def _screensaver(run: Run):
@@ -480,7 +482,7 @@ async def _screensaver(run: Run):
     right_after = await run.rail_note()
     await run.advance(40)
     later = await run.rail_note()
-    if not 8 <= polled <= 25 or right_after or later != LOST:
+    if not 20 <= polled <= 25 or right_after or later != LOST:
         return f"{polled} polls during pause, rail {right_after!r} on wake, {later!r} 40 s later"
 
 
@@ -770,16 +772,21 @@ async def _horizon(run: Run):
         return repr(text)
 
 
-@case("Wetterscreen: Alter der Stundenwerte steht in der Quellenzeile")
+@case("Wetterscreen: Alter der Stunden- und Regenwerte steht bernsteinfarben bei der Grafik")
 async def _hourly_age(run: Run):
+    seen = []
     stamp = iso(vienna(2026, 10, 24, 15, 10))
-    await run.fresh(now=NOW, mutate=hourly_series(vienna(2026, 10, 25, 12, 0), 30, status="stale",
-                                                   updated_at=stamp))
-    await run.to_weather()
-    source = await run.text("#wx-source")
-    behind = await run.page.evaluate("() => document.getElementById('wx-source').classList.contains('is-behind')")
-    if not source.startswith("Stunden: GeoSphere C-LAEF · Lauf 06:00 · Stand gestern 15:10") or not behind:
-        return f"{source!r}, behind={behind}"
+    for mutate, rain in ((hourly_series(vienna(2026, 10, 25, 12, 0), 30, updated_at=iso(NOW)), False),
+                         (hourly_series(vienna(2026, 10, 25, 12, 0), 30, status="stale", updated_at=stamp), False),
+                         (nowcast(vienna(2026, 10, 25, 10, 45), [0.0] * 12, status="stale"), True)):
+        await run.fresh(now=NOW, mutate=mutate)
+        await run.to_weather()
+        if rain:
+            await run.page.click('[data-wx-mode="rain"]')
+        seen.append((await run.text("#wx-note"), await run.page.evaluate(
+            "() => document.getElementById('wx-note').classList.contains('is-behind')")))
+    if seen != [("", False), ("Stundenwerte · Stand gestern 15:10", True), ("Regenvorschau · Stand 10:45", True)]:
+        return repr(seen)
 
 
 @case("Regen: „Kein Niederschlag erwartet“ nur bei vollständigen gültigen Werten")

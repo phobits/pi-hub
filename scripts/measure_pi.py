@@ -7,8 +7,9 @@ Runs ON the device, stdlib only, and writes one JSON line per run:
 
 Collects, in one pass:
   - memory:   MemTotal/MemAvailable/Swap from /proc/meminfo
-  - rss:      per-process RSS for the backend, cog and the WPE helper processes
-  - cpu:      system-wide busy % over --duration seconds (from /proc/stat), plus
+  - rss:      per-process RSS, swapped-out size (VmSwap) and age for the
+              backend, cog and the WPE helper processes
+  - cpu:     system-wide busy % over --duration seconds (from /proc/stat), plus
               per-process busy % for the same processes (from /proc/<pid>/stat)
   - disk:     sectors written to the SD card since boot and during the sample
               (/proc/diskstats, device mmcblk0) → bytes
@@ -18,6 +19,13 @@ Collects, in one pass:
 
 Compare two runs (before/after a change, or t0 and t0+24h) by diffing the
 ``disk.written_bytes_since_boot`` and watching ``memory.available_mb``.
+
+Leak check: ``--compare <earlier.json>`` matches each process of this run to
+the earlier one and reports the growth of RSS + VmSwap. RSS alone is useless
+here: zram swaps cold pages out, so a process can grow while its RSS shrinks.
+A process only counts as the same if PID *and* start time match — every
+deploy restarts both units, and a comparison across a restart says nothing.
+
 Output dir defaults to <install>/data/measurements (rsync-excluded, survives
 deploys).
 """
@@ -44,6 +52,9 @@ PROCESS_PATTERNS = {
     "wpe_network": re.compile(r"WPENetworkProcess"),
 }
 SECTOR_BYTES = 512
+# Start times derived from two runs' clocks differ by rounding (age_s is whole
+# seconds, measured_at too); a real restart moves it by far more.
+SAME_START_TOLERANCE_S = 5
 
 
 def read_text(path: str) -> str:
@@ -89,9 +100,10 @@ def list_processes() -> list[dict]:
     return processes
 
 
-def rss_kb(pid: int) -> int:
+def status_kb(pid: int, field: str) -> int:
+    """A ``kB`` field of /proc/<pid>/status, e.g. ``VmRSS`` or ``VmSwap``."""
     for line in read_text(f"/proc/{pid}/status").splitlines():
-        if line.startswith("VmRSS:"):
+        if line.startswith(f"{field}:"):
             parts = line.split()
             return int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
     return 0
@@ -107,6 +119,69 @@ def proc_cpu_ticks(pid: int) -> int:
         return int(tail[11]) + int(tail[12])
     except (IndexError, ValueError):
         return 0
+
+
+def proc_age_s(pid: int, clk_tck: int) -> int | None:
+    stat = read_text(f"/proc/{pid}/stat")
+    uptime = read_text("/proc/uptime").split()
+    if not stat or not uptime:
+        return None
+    # Index 19 after the ")" of comm is starttime, in clock ticks since boot.
+    tail = stat.rsplit(")", 1)[-1].split()
+    try:
+        return int(float(uptime[0]) - int(tail[19]) / clk_tck)
+    except (IndexError, ValueError):
+        return None
+
+
+def _started_at(measured_at: str, age_s: int) -> float:
+    return _dt.datetime.fromisoformat(measured_at).timestamp() - age_s
+
+
+def compare(earlier: dict, current: dict) -> list[dict]:
+    """Growth of RSS + VmSwap per process between two runs of this script.
+
+    One row per process of ``current``. ``same`` is false when the earlier run
+    has no process with that PID and start time — then there is no delta, only
+    the reason. Runs written before ``swap_mb``/``age_s`` existed never match:
+    their start time is unknown, so a reused PID would look like the same
+    process.
+    """
+    hours = (
+        _dt.datetime.fromisoformat(current["measured_at"])
+        - _dt.datetime.fromisoformat(earlier["measured_at"])
+    ).total_seconds() / 3600
+    before = {
+        entry["pid"]: entry
+        for entries in earlier.get("processes", {}).values()
+        for entry in entries
+    }
+    rows = []
+    for role, entries in current.get("processes", {}).items():
+        for entry in entries:
+            row = {"role": role, "pid": entry["pid"], "same": False}
+            old = before.get(entry["pid"])
+            if old is None:
+                row["reason"] = "PID nicht in der Vergleichsmessung"
+            elif old.get("age_s") is None or old.get("swap_mb") is None or entry.get("age_s") is None:
+                row["reason"] = "Vergleichsmessung ohne age_s/swap_mb"
+            elif abs(
+                _started_at(earlier["measured_at"], old["age_s"])
+                - _started_at(current["measured_at"], entry["age_s"])
+            ) > SAME_START_TOLERANCE_S:
+                row["reason"] = "gleiche PID, aber neu gestartet"
+            else:
+                was = old["rss_mb"] + old["swap_mb"]
+                now = entry["rss_mb"] + entry["swap_mb"]
+                row.update(
+                    same=True,
+                    total_mb_before=round(was, 1),
+                    total_mb_now=round(now, 1),
+                    delta_mb=round(now - was, 1),
+                    mb_per_hour=round((now - was) / hours, 2) if hours > 0 else None,
+                )
+            rows.append(row)
+    return rows
 
 
 def system_cpu_ticks() -> tuple[int, int]:
@@ -198,7 +273,13 @@ def main() -> int:
     parser.add_argument("--latency-samples", type=int, default=50)
     parser.add_argument("--out", default=None, help="directory for the JSON line (default: <install>/data/measurements)")
     parser.add_argument("--label", default="", help="free-text tag, e.g. 'baseline' or 'after-debounce'")
+    parser.add_argument("--compare", default=None, help="earlier JSON from this script: report RSS + VmSwap growth per process")
     args = parser.parse_args()
+
+    earlier = None
+    if args.compare:
+        # Read before sampling, so a typo fails now and not after a minute.
+        earlier = json.loads(Path(args.compare).read_text(encoding="utf-8"))
 
     install_dir = Path(__file__).resolve().parent.parent
     out_dir = Path(args.out) if args.out else install_dir / "data" / "measurements"
@@ -225,7 +306,9 @@ def main() -> int:
         proc_pct = round(100.0 * ticks / clk_tck / max(1, args.duration) / cpu_count, 1)
         entry = {
             "pid": pid,
-            "rss_mb": round(rss_kb(pid) / 1024, 1),
+            "rss_mb": round(status_kb(pid, "VmRSS") / 1024, 1),
+            "swap_mb": round(status_kb(pid, "VmSwap") / 1024, 1),
+            "age_s": proc_age_s(pid, clk_tck),
             "cpu_pct": proc_pct,
             "cmdline": proc["cmdline"],
         }
@@ -258,6 +341,12 @@ def main() -> int:
         result["saved_to"] = str(out_file)
     except OSError as exc:
         result["saved_to"] = f"nicht gespeichert: {exc}"
+
+    if earlier is not None:
+        result["compare"] = {
+            "against": args.compare,
+            "processes": compare(earlier, result),
+        }
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

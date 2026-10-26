@@ -717,9 +717,8 @@
     wxWarnMore: document.getElementById("wx-warn-more"),
     wxMode: document.getElementById("wx-mode"),
     wxRange: document.getElementById("wx-range"),
-    wxRainNote: document.getElementById("wx-rain-note"),
+    wxNote: document.getElementById("wx-note"),
     wxChart: document.getElementById("wx-chart"),
-    wxSource: document.getElementById("wx-source"),
     wxWeek: document.getElementById("wx-week"),
     warnSheet: document.getElementById("warn-sheet"),
     warnSheetBackdrop: document.getElementById("warn-sheet-backdrop"),
@@ -1891,20 +1890,14 @@
   const NOWCAST_MIN_INTERVALS_FOR_DRY = 8;
   const WX_CHART = {
     width: 968,
-    height: 236,
+    height: 264,
     left: 46,
     right: 56,
     iconTop: 0,
     plotTop: 44,
-    plotBottom: 176,
-    timeY: 196,
-    windY: 224,
-  };
-  const WX_SOURCES = {
-    "geosphere-claef": "GeoSphere C-LAEF",
-    "geosphere-inca": "GeoSphere INCA",
-    "geosphere-warnings": "GeoSphere Austria",
-    "open-meteo": "Open-Meteo",
+    plotBottom: 204,
+    timeY: 224,
+    windY: 252,
   };
   const WIND_DIRECTIONS = ["Nord", "Nordost", "Ost", "Südost", "Süd", "Südwest", "West", "Nordwest"];
   // Order of "how much this matters" when one icon stands for three hours.
@@ -2017,10 +2010,6 @@
   function sectionOf(name) {
     const section = state[name];
     return section && typeof section === "object" ? section : null;
-  }
-
-  function sourceLabel(snapshot) {
-    return WX_SOURCES[(snapshot && snapshot.source) || ""] || "Demo";
   }
 
   // ---- Warnings (shared by the detail screen and the screensaver) ---------
@@ -2629,33 +2618,28 @@
     nodes.wxWeek.replaceChildren(fragment);
   }
 
-  function renderWeatherSource() {
-    const parts = [];
+  // No source line while all is well (the credit sits in the quick sheet).
+  // A problem shows in amber beside the controls, where it applies; current
+  // values and the week say "Stand …" in #wx-meta. The part that matters
+  // comes first, so an ellipsis can only cut the rest.
+  function renderWeatherNote() {
+    let text = "";
     let behind = false;
-    const stampOf = (snapshot) => {
-      const stamp = formatStamp(snapshot.updated_at);
-      if (isBehind(snapshot)) behind = true;
-      return stamp ? `Stand ${stamp}` : "";
-    };
     if (weatherView.mode === "rain") {
-      const nowcast = sectionOf("weather_nowcast") || {};
-      const snapshot = nowcast.snapshot || {};
-      const run = parseIsoMs(nowcast.model_run);
-      parts.push(["Regen: GeoSphere INCA", run !== null ? `Lauf ${formatStamp(nowcast.model_run)}` : "", stampOf(snapshot)].filter(Boolean).join(" · "));
-    } else {
+      const snapshot = (sectionOf("weather_nowcast") || {}).snapshot || {};
+      const stamp = isBehind(snapshot) ? formatStamp(snapshot.updated_at) : "";
+      behind = stamp !== "";
+      text = behind ? `Regenvorschau · Stand ${stamp}` : "Nächste 3 Stunden · Niederschlag je 15 Minuten";
+    } else if (weatherView.range !== "day") {
       const series = sectionOf("weather_hourly") || {};
       const snapshot = series.snapshot || {};
-      let name = `Stunden: ${sourceLabel(snapshot)}`;
-      if (series.fallback) name += " (GeoSphere nicht verfügbar)";
-      const run = parseIsoMs(series.model_run);
-      parts.push([name, run !== null ? `Lauf ${formatStamp(series.model_run)}` : "", stampOf(snapshot)].filter(Boolean).join(" · "));
+      const stamp = isBehind(snapshot) ? formatStamp(snapshot.updated_at) : "";
+      if (series.fallback) text = stamp ? `Stunden von Open-Meteo · Stand ${stamp}` : "GeoSphere gestört · Stunden von Open-Meteo";
+      else if (stamp) text = `Stundenwerte · Stand ${stamp}`;
+      behind = text !== "";
     }
-    const weatherSnapshot = (state.weather || {}).snapshot || {};
-    parts.push(["Aktuell & 7 Tage: Open-Meteo", isBehind(weatherSnapshot) ? stampOf(weatherSnapshot) : ""].filter(Boolean).join(" · "));
-    parts.push("CC BY 4.0: GeoSphere Austria, Open-Meteo.com");
-    const text = parts.join("  |  ");
-    if (nodes.wxSource.textContent !== text) nodes.wxSource.textContent = text;
-    nodes.wxSource.classList.toggle("is-behind", behind);
+    if (nodes.wxNote.textContent !== text) nodes.wxNote.textContent = text;
+    nodes.wxNote.classList.toggle("is-behind", behind);
   }
 
   function syncWeatherControls() {
@@ -2664,7 +2648,6 @@
     });
     const hours = weatherView.mode === "hours";
     nodes.wxRange.classList.toggle("is-hidden", !hours);
-    nodes.wxRainNote.classList.toggle("is-hidden", hours);
     nodes.wxRange.querySelectorAll("[data-wx-range]").forEach((button) => {
       button.classList.toggle("is-selected", hours && weatherView.range === button.dataset.wxRange);
     });
@@ -2696,7 +2679,7 @@
     if (weatherView.mode === "rain") renderRainChart(nowMs);
     else if (weatherView.range === "day") renderFarDay(weatherView.day);
     else renderHourlyChart(nowMs);
-    renderWeatherSource();
+    renderWeatherNote();
     renderWeek(nowMs);
   }
 

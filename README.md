@@ -61,7 +61,7 @@ All server-side, one point query each, small JSON only — the browser never cal
 | Rain nowcast, 3 h in 15 min | GeoSphere Austria INCA | `…/timeseries/forecast/nowcast-v1-15min-1km`, `rr` |
 | Official warnings | GeoSphere Austria | `warnungen.zamg.at/wsapp/api/getWarningsForCoords?lon=…&lat=…&lang=de` |
 
-Data: GeoSphere Austria and Open-Meteo.com, both [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the weather screen names both. GeoSphere covers Austria and its surroundings only: outside, its sources switch themselves off and the hourly chart uses Open-Meteo. Each source has its own status, age and last good data in `data/last_good.json`; a failing source degrades only its part of the screen. Rate limits are respected (429/5xx back off, `Retry-After` honoured, GeoSphere allows 240 requests/hour).
+Data: GeoSphere Austria and Open-Meteo.com, both [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), credited at the bottom of the quick sheet. The weather screen names a source only when something is wrong: an amber note beside the controls when the hourly or rain values are behind or come from the Open-Meteo fallback. GeoSphere covers Austria and its surroundings only: outside, its sources switch themselves off and the hourly chart uses Open-Meteo. Each source has its own status, age and last good data in `data/last_good.json`; a failing source degrades only its part of the screen. Rate limits are respected (429/5xx back off, `Retry-After` honoured, GeoSphere allows 240 requests/hour).
 
 ## Deploying to the Pi
 
@@ -83,7 +83,7 @@ It rsyncs the working tree to `/opt/smart-display` and restarts both units only 
 
 The screensaver pulls one new album photo per 30-minute tick. `PI_HOST=pi@<your-pi> bash scripts/sync-album.sh` pulls the whole album now: new, edited and removed photos (both units stop for about a minute; `--dry-run` only reports).
 
-On the device, `scripts/measure_pi.py --duration 60 --label baseline` writes one JSON line (memory, RSS, CPU, SD writes, `/api/state` latency, restarts) to `data/measurements/`; `scripts/pi/test-panel-blank.sh` checks whether the panel goes dark on DPMS-off; `scripts/pi/check-unit-restarts.sh` checks that the kiosk survives a backend restart, stop + start and crash.
+On the device, `scripts/measure_pi.py --duration 60 --label baseline` writes one JSON line (memory, RSS + swap and age per process, CPU, SD writes, `/api/state` latency, restarts) to `data/measurements/`; `--compare <earlier.json>` reports each process's growth in RSS + swap, only against the same process (PID and start time) — a deploy in between leaves nothing to compare; `scripts/pi/test-panel-blank.sh` checks whether the panel goes dark on DPMS-off; `scripts/pi/check-unit-restarts.sh` checks that the kiosk survives a backend restart, stop + start and crash.
 
 ## Known limits
 

@@ -11,6 +11,30 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-26
+
+### Hinzugefügt
+
+- `scripts/measure_pi.py` misst pro Prozess auch ausgelagerten Speicher
+  (`VmSwap`) und Alter; `--compare <frühere.json>` meldet das Wachstum von
+  RSS + Swap je Prozess, nur bei gleicher PID und Startzeit (Leck-Check,
+  [#10](https://github.com/phobits/pi-hub/issues/10)). Der Hinweis zu
+  `MemoryMax` in der Kiosk-Unit nennt RSS + Swap als Maß (nur Kommentar).
+
+### Geändert
+
+- Wetterscreen ohne Quellenzeile: Im Normalfall steht keine Quelle mehr dort,
+  die 28 px gehen an die Grafik (264 statt 236 px hoch). Ein Problem zeigt ein
+  bernsteinfarbener Hinweis neben den Umschaltern („Stundenwerte · Stand …“,
+  „GeoSphere gestört · Stunden von Open-Meteo“, im Regenmodus
+  „Regenvorschau · Stand …“); veraltete Aktuell- und Wochenwerte zeigen wie
+  bisher „Stand …“ oben ([#22](https://github.com/phobits/pi-hub/issues/22)).
+- Die Lizenzangabe „Wetterdaten: GeoSphere Austria, Open-Meteo.com · CC BY 4.0“
+  steht jetzt im Schnellmenü unter „Uhr“.
+- `check-freshness.py` lässt die Testuhr in 5-s-Schritten laufen statt in
+  Minutensprüngen, die Abfragen per 10-s-Timeout abbrachen; der
+  Screensaver-Fall verlangt wieder mindestens 20 der 24 Abfragen.
+
 ## [0.13.1] - 2026-10-26
 
 ### Geändert

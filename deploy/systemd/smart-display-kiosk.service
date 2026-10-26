@@ -18,7 +18,9 @@ RestartSec=5
 OOMScoreAdjust=500
 # Hard cap for Cog + WPE helpers. Deliberately unset until the baseline from
 # scripts/measure_pi.py exists — a cap below real need turns into a restart
-# loop. Suggested starting point once measured: peak RSS sum + 25 %.
+# loop. Measure RSS + swap, not RSS alone: zram holds a large share of the
+# kiosk swapped out, so RSS understates what it needs. Suggested starting
+# point: peak (RSS + swap) sum of cog + WPE over a 24 h --compare run, + 25 %.
 #MemoryMax=320M
 
 [Install]
