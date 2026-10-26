@@ -11,6 +11,40 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-26
+
+### Hinzugefügt
+
+- Dritter Screen „Wetter“ hinter Spotify (Home → Spotify → Wetter, kein
+  Umlauf, kein Einstieg vom Homescreen): aktuelle Werte mit Wind und Böen,
+  Grafik für 24 Stunden / heute / morgen mit Temperatur und stündlichem
+  Niederschlag, Regenvorschau für 3 Stunden in 15-Minuten-Balken, sieben Tage
+  zum Antippen ([#22](https://github.com/phobits/pi-hub/issues/22)).
+- Neue Quellen, jede mit eigenem Status, Alter und letztem guten Stand:
+  GeoSphere C-LAEF (Stundenwerte), INCA (Nowcast) und die amtlichen Warnungen
+  per Punktabfrage; Open-Meteo liefert zusätzlich sieben Tage und ersetzt bei
+  einem GeoSphere-Ausfall die ganze Stundenreihe, nie einzelne Stunden. 429
+  und 5xx weichen zurück, `Retry-After` wird beachtet.
+- Amtliche Warnungen: Hinweis oben im Wetter-Screen, Details in einem
+  scrollenden Overlay; im Screensaver eine ruhige Zeile mit der wichtigsten
+  aktiven oder binnen 24 Stunden beginnenden Warnung („+N“ für weitere). Eine
+  Warnung verschwindet pünktlich zu ihrem Ende, ohne neuen Abruf.
+- Konfiguration: `WEATHER_GEOSPHERE_ENABLED`, `WEATHER_WARNINGS_ENABLED`,
+  `REFRESH_WEATHER_HOURLY_SECONDS`, `REFRESH_WEATHER_NOWCAST_SECONDS`,
+  `REFRESH_WEATHER_WARNINGS_SECONDS`.
+- `check-gestures.py` und `check-freshness.py` prüfen die drei Screens, die
+  Wetter-Bedienung, das Warn-Overlay, den Ablauf von Warnungen und die
+  Zeitachsen; `screenshot-states.py` rendert 26 neue Wetter- und
+  Warnzustände.
+
+### Geändert
+
+- Der Screensaver fragt den Zustand alle 5 Minuten ab statt gar nicht, damit
+  Warnungen ankommen. Diese Abfragen zählen nie für „Anzeige wird
+  aktualisiert“.
+- Wochentage im Wetter-Screen in der Duden-Form („Mi.“), wie auf dem
+  Homescreen.
+
 ## [0.12.2] - 2026-10-25
 
 ### Behoben

@@ -704,6 +704,29 @@
     screenStage: document.getElementById("screen-stage"),
     homeScreen: document.getElementById("screen-home"),
     spotifyScreen: document.getElementById("screen-spotify"),
+    weatherScreen: document.getElementById("screen-weather"),
+    wxTemp: document.getElementById("wx-temp"),
+    wxIcon: document.getElementById("wx-icon"),
+    wxCondition: document.getElementById("wx-condition"),
+    wxFacts: document.getElementById("wx-facts"),
+    wxWind: document.getElementById("wx-wind"),
+    wxMeta: document.getElementById("wx-meta"),
+    wxWarn: document.getElementById("wx-warn"),
+    wxWarnTitle: document.getElementById("wx-warn-title"),
+    wxWarnSub: document.getElementById("wx-warn-sub"),
+    wxWarnMore: document.getElementById("wx-warn-more"),
+    wxMode: document.getElementById("wx-mode"),
+    wxRange: document.getElementById("wx-range"),
+    wxRainNote: document.getElementById("wx-rain-note"),
+    wxChart: document.getElementById("wx-chart"),
+    wxSource: document.getElementById("wx-source"),
+    wxWeek: document.getElementById("wx-week"),
+    warnSheet: document.getElementById("warn-sheet"),
+    warnSheetBackdrop: document.getElementById("warn-sheet-backdrop"),
+    warnSheetClose: document.getElementById("warn-sheet-close"),
+    warnSheetPlace: document.getElementById("warn-sheet-place"),
+    warnSheetBody: document.getElementById("warn-sheet-body"),
+    warnSheetFooter: document.getElementById("warn-sheet-footer"),
     date: document.getElementById("clock-date"),
     watchFace: document.getElementById("watch-face"),
     flipFace: document.getElementById("watch-face-flip"),
@@ -797,6 +820,9 @@
     screensaverWeather: document.getElementById("screensaver-weather"),
     screensaverWeatherSep: document.getElementById("screensaver-weather-sep"),
     screensaverTimer: document.getElementById("screensaver-timer"),
+    // #22: the local-warning line, outside the clock's wake area.
+    screensaverWarning: document.getElementById("screensaver-warning"),
+    screensaverWarningText: document.getElementById("screensaver-warning-text"),
     // Ticket #1: NTP hint.
     clockSyncHint: document.getElementById("clock-sync-hint"),
     // Ticket #3: timer chip + alarm.
@@ -1035,6 +1061,16 @@
       '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19h14a5 5 0 1 0-.9-9.9A7 7 0 0 0 9 8a5 5 0 0 0 0 11Z"></path><path d="M13 24h0M19 24h0"></path><path d="M13 21v6M10 24h6M11 22l4 4M15 22l-4 4"></path><path d="M19 21v6M16 24h6M17 22l4 4M21 22l-4 4"></path></svg>',
     storm:
       '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19h14a5 5 0 1 0-.9-9.9A7 7 0 0 0 9 8a5 5 0 0 0 0 11Z"></path><path d="M16 20l-3 5h3l-2 4 5-7h-3l2-2"></path></svg>',
+    // #22: night variants, sleet and a neutral "no data" mark for the
+    // detail screen. The home screen's own WMO mapping never asks for them.
+    "clear-night":
+      '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 22.5A9.5 9.5 0 0 1 13.2 7.4 9.5 9.5 0 1 0 24.6 19a9.4 9.4 0 0 1-3.6 3.5Z"></path></svg>',
+    "partly-cloudy-night":
+      '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 12.5A6 6 0 0 1 17 4.6a6.5 6.5 0 0 0 7 9.6"></path><path d="M9 25h13a5 5 0 0 0 0-10 7 7 0 0 0-13-1A5 5 0 0 0 9 25Z"></path></svg>',
+    sleet:
+      '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19h14a5 5 0 1 0-.9-9.9A7 7 0 0 0 9 8a5 5 0 0 0 0 11Z"></path><path d="M12 22l-1.5 3"></path><path d="M20 21v6M17 24h6M18 22l4 4M22 22l-4 4"></path></svg>',
+    unknown:
+      '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 3"><path d="M9 24h14a5 5 0 1 0-.9-9.9A7 7 0 0 0 9 13a5 5 0 0 0 0 11Z"></path></svg>',
     previous:
       '<svg viewBox="0 0 32 32" fill="currentColor"><rect x="7" y="7" width="3" height="18" rx="1.2"></rect><path d="M23.5 8.5v15L11 16z"></path></svg>',
     next:
@@ -1119,6 +1155,9 @@
     nodes.screensaverTime.textContent = CLOCK_TIME_FMT.format(now);
     applyNight(false);
     refreshCalendarMinute();
+    // #22: a warning ends on its minute even when no fetch lands.
+    renderScreensaverWarning();
+    renderWeatherDetail(false);
     if (screensaverActive) {
       updateScreensaverFlip(false);
       return;
@@ -1837,6 +1876,860 @@
 
   // The music bar's current shape. Read before and after renderSpotify so
   // render() can tell when the agenda row was resized and must re-budget.
+  // ---- Weather detail, screen 3 (#22) -------------------------------------
+  // Drawn only while the screen is visible, and only when its inputs change:
+  // the sections, the selection, and the hour (the quarter hour in rain view)
+  // — past hours drop out of the chart on their own, nothing ticks. The
+  // server decides which hourly series to send (weather_detail.select_hourly)
+  // and when a warning stops being shown (visible_until); this side only
+  // compares those times with the clock.
+  const HOUR_MS = 3_600_000;
+  const QUARTER_MS = 900_000;
+  const SCREENSAVER_WARNING_LOOKAHEAD_MS = 24 * HOUR_MS;
+  // INCA intervals that must remain before "Kein Niederschlag erwartet" may
+  // be said: two of its three hours, every one of them a real 0.
+  const NOWCAST_MIN_INTERVALS_FOR_DRY = 8;
+  const WX_CHART = {
+    width: 968,
+    height: 236,
+    left: 46,
+    right: 56,
+    iconTop: 0,
+    plotTop: 44,
+    plotBottom: 176,
+    timeY: 196,
+    windY: 224,
+  };
+  const WX_SOURCES = {
+    "geosphere-claef": "GeoSphere C-LAEF",
+    "geosphere-inca": "GeoSphere INCA",
+    "geosphere-warnings": "GeoSphere Austria",
+    "open-meteo": "Open-Meteo",
+  };
+  const WARN_TYPE_NAMES = {
+    1: "Windwarnung",
+    2: "Regenwarnung",
+    3: "Schneewarnung",
+    4: "Glatteiswarnung",
+    5: "Gewitterwarnung",
+    6: "Hitzewarnung",
+    7: "Kältewarnung",
+  };
+  const WARN_LEVEL_ADJECTIVES = { 1: "Gelbe", 2: "Orange", 3: "Rote" };
+  const WIND_DIRECTIONS = ["Nord", "Nordost", "Ost", "Südost", "Süd", "Südwest", "West", "Nordwest"];
+  // Order of "how much this matters" when one icon stands for three hours.
+  const ICON_WEIGHT = {
+    storm: 8,
+    snow: 7,
+    sleet: 6,
+    rain: 5,
+    fog: 4,
+    cloudy: 3,
+    "partly-cloudy": 2,
+    "partly-cloudy-night": 2,
+    clear: 1,
+    "clear-night": 1,
+    unknown: 0,
+  };
+  const HOUR_NUM_FMT = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    hourCycle: "h23",
+    timeZone: TIMEZONE,
+  });
+  // Fixed, like _short_day_label in the backend: Intl's short weekday depends
+  // on the engine's ICU ("Mi" in Chromium, not the Duden form "Mi.").
+  const WEEKDAY_SHORT = ["So.", "Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa."];
+  const WEEKDAY_SHORT_FMT = {
+    format: (date) => WEEKDAY_SHORT[new Date(`${SECTION_DATE_FMT.format(date)}T12:00:00Z`).getUTCDay()],
+  };
+  const DAY_MONTH_FMT = new Intl.DateTimeFormat(LOCALE, {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: TIMEZONE,
+  });
+  const LONG_DAY_FMT = new Intl.DateTimeFormat(LOCALE, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: TIMEZONE,
+  });
+  const ZONE_PARTS_FMT = new Intl.DateTimeFormat("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZone: TIMEZONE,
+  });
+  const MM_FMT = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const MM_FINE_FMT = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+
+  const weatherView = { mode: "hours", range: "next24", day: "" };
+  let lastWeatherDetailKey = "";
+  let warnSheetOpen = false;
+
+  function svgIcon(name, x, y, size) {
+    const markup = icons[name] || icons.unknown;
+    return markup.replace("<svg ", `<svg x="${x}" y="${y}" width="${size}" height="${size}" `);
+  }
+
+  function escapeXml(text) {
+    return String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  }
+
+  function fmtTemp(value) {
+    return typeof value === "number" ? `${Math.round(value)}°` : "–";
+  }
+
+  function fmtKmh(value) {
+    return `${Math.round(value)} km/h`;
+  }
+
+  function windDirectionName(degrees) {
+    return WIND_DIRECTIONS[Math.round((((degrees % 360) + 360) % 360) / 45) % 8];
+  }
+
+  // Offset of TIMEZONE from UTC at `ms`, so local midnights can be found
+  // without trusting the browser's own zone. Two passes settle a DST day.
+  function zoneOffsetMs(ms) {
+    const p = {};
+    ZONE_PARTS_FMT.formatToParts(new Date(ms)).forEach((part) => {
+      p[part.type] = part.value;
+    });
+    const wall = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour), Number(p.minute), Number(p.second));
+    return wall - Math.floor(ms / 1000) * 1000;
+  }
+
+  function localMidnightMs(dateIso) {
+    const [y, m, d] = dateIso.split("-").map(Number);
+    const guess = Date.UTC(y, m - 1, d);
+    const first = guess - zoneOffsetMs(guess);
+    return guess - zoneOffsetMs(first);
+  }
+
+  function addDaysIso(dateIso, days) {
+    const [y, m, d] = dateIso.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  }
+
+  // "18:00" today, "morgen 18:00", else "Mi. 18:00".
+  function dayTimeLabel(ms, nowMs) {
+    const time = CLOCK_TIME_FMT.format(new Date(ms));
+    const day = SECTION_DATE_FMT.format(new Date(ms));
+    const today = SECTION_DATE_FMT.format(new Date(nowMs));
+    if (day === today) return time;
+    if (day === addDaysIso(today, 1)) return `morgen ${time}`;
+    return `${WEEKDAY_SHORT_FMT.format(new Date(ms))} ${time}`;
+  }
+
+  function sectionOf(name) {
+    const section = state[name];
+    return section && typeof section === "object" ? section : null;
+  }
+
+  function sourceLabel(snapshot) {
+    return WX_SOURCES[(snapshot && snapshot.source) || ""] || "Demo";
+  }
+
+  // ---- Warnings (shared by the detail screen and the screensaver) ---------
+  // Mirrors weather_detail.screensaver_warnings: the list arrives sorted and
+  // with its visibility end; expiry is a comparison with the clock, so a
+  // warning disappears on time even when no fetch lands.
+  function visibleWarnings(nowMs, lookaheadMs) {
+    const section = sectionOf("weather_warnings");
+    const items = section && Array.isArray(section.items) ? section.items : [];
+    return items.filter((item) => {
+      const until = parseIsoMs(item.visible_until);
+      if (until === null || until <= nowMs) return false;
+      if (lookaheadMs === null) return true;
+      const begins = parseIsoMs(item.begins_at);
+      return begins === null || begins < nowMs + lookaheadMs;
+    });
+  }
+
+  function warningName(item) {
+    const type = WARN_TYPE_NAMES[item.type] || "Wetterwarnung";
+    const level = WARN_LEVEL_ADJECTIVES[item.level];
+    return level ? `${level} ${type}` : type;
+  }
+
+  function warningTimePhrase(item, nowMs) {
+    const begins = parseIsoMs(item.begins_at);
+    if (begins !== null && begins > nowMs) {
+      return `ab ${dayTimeLabel(begins, nowMs)}`;
+    }
+    const ends = parseIsoMs(item.ends_at);
+    return ends !== null ? `bis ${dayTimeLabel(ends, nowMs)}` : "Ende nicht angegeben";
+  }
+
+  function warningsBehindStamp() {
+    const section = sectionOf("weather_warnings");
+    const snapshot = (section && section.snapshot) || {};
+    return isBehind(snapshot) ? formatStamp(snapshot.updated_at) : "";
+  }
+
+  // The screensaver line: the most important local warning that is active or
+  // begins within 24 h, the rest as "+N". Text only, no ticker, not a target.
+  function renderScreensaverWarning() {
+    const nowMs = Date.now();
+    const list = visibleWarnings(nowMs, SCREENSAVER_WARNING_LOOKAHEAD_MS);
+    let text = "";
+    let level = "";
+    if (list.length) {
+      const top = list[0];
+      const parts = [warningName(top), warningTimePhrase(top, nowMs)];
+      if (list.length > 1) parts.push(`+${list.length - 1}`);
+      const stamp = warningsBehindStamp();
+      if (stamp) parts.push(`Stand ${stamp}`);
+      text = parts.join(" · ");
+      level = String(top.level || 0);
+    }
+    if (nodes.screensaverWarningText.textContent !== text) {
+      nodes.screensaverWarningText.textContent = text;
+    }
+    nodes.screensaverWarning.dataset.level = level;
+    nodes.screensaverWarning.classList.toggle("is-hidden", text === "");
+  }
+
+  function renderWarningHint(nowMs) {
+    const section = sectionOf("weather_warnings");
+    const snapshot = (section && section.snapshot) || {};
+    const status = snapshot.status || "";
+    const list = visibleWarnings(nowMs, null);
+    let mode = "";
+    let title = "";
+    let sub = "";
+    let more = "";
+    if (!section || status === "disabled") {
+      mode = "off";
+    } else if (list.length) {
+      mode = "active";
+      title = warningName(list[0]);
+      sub = warningTimePhrase(list[0], nowMs);
+      const stamp = warningsBehindStamp();
+      if (stamp) sub += ` · Stand ${stamp}`;
+      more = list.length > 1 ? `+${list.length - 1}` : "";
+    } else if (status === "ok") {
+      // Only a successful, valid answer may say this (#22).
+      mode = "clear";
+      title = "Keine Warnungen";
+    } else if (status === "empty") {
+      mode = "loading";
+      title = "Warnungen werden geladen";
+    } else {
+      mode = "unavailable";
+      title = "Warnungen derzeit nicht verfügbar";
+      const stamp = warningsBehindStamp();
+      sub = stamp ? `Stand ${stamp}` : "";
+    }
+    const node = nodes.wxWarn;
+    node.dataset.state = mode;
+    node.dataset.level = mode === "active" ? String(list[0].level || 0) : "";
+    node.classList.toggle("is-hidden", mode === "off");
+    node.disabled = mode !== "active";
+    nodes.wxWarnTitle.textContent = title;
+    nodes.wxWarnSub.textContent = sub;
+    nodes.wxWarnSub.classList.toggle("is-hidden", sub === "");
+    nodes.wxWarnMore.textContent = more;
+    nodes.wxWarnMore.classList.toggle("is-hidden", more === "");
+    if (warnSheetOpen) {
+      if (mode === "active") renderWarnSheet(list, nowMs);
+      else closeWarnSheet();
+    }
+  }
+
+  function periodLabel(item) {
+    const begins = parseIsoMs(item.begins_at);
+    const ends = parseIsoMs(item.ends_at);
+    const stamp = (ms) => `${WEEKDAY_SHORT_FMT.format(new Date(ms))} ${DAY_MONTH_FMT.format(new Date(ms))}, ${CLOCK_TIME_FMT.format(new Date(ms))}`;
+    if (begins === null && ends === null) return "Zeitraum nicht angegeben";
+    if (begins === null) return `bis ${stamp(ends)}`;
+    if (ends === null) return `ab ${stamp(begins)} · Ende nicht angegeben`;
+    const sameDay = SECTION_DATE_FMT.format(new Date(begins)) === SECTION_DATE_FMT.format(new Date(ends));
+    return sameDay ? `${stamp(begins)} – ${CLOCK_TIME_FMT.format(new Date(ends))}` : `${stamp(begins)} – ${stamp(ends)}`;
+  }
+
+  function warnBlock(label, text) {
+    const block = document.createElement("section");
+    block.className = "warn-card__block";
+    const heading = document.createElement("h4");
+    heading.textContent = label;
+    const body = document.createElement("p");
+    body.textContent = text;
+    block.append(heading, body);
+    return block;
+  }
+
+  // The open sheet is rebuilt only when what it shows changes — a rebuild on
+  // every poll would cut off a touch scroll in the middle of a long text.
+  let warnSheetKey = "";
+
+  function renderWarnSheet(list, nowMs, force = false) {
+    const section = sectionOf("weather_warnings") || {};
+    const snapshot = section.snapshot || {};
+    const key = JSON.stringify([
+      list,
+      list.map((item) => (parseIsoMs(item.begins_at) || 0) <= nowMs),
+      section.municipality_name,
+      formatStamp(snapshot.updated_at),
+      isBehind(snapshot),
+    ]);
+    if (!force && key === warnSheetKey) return;
+    warnSheetKey = key;
+    nodes.warnSheetPlace.textContent = section.municipality_name || "";
+    const fragment = document.createDocumentFragment();
+    list.forEach((item) => {
+      const card = document.createElement("article");
+      card.className = "warn-card";
+      card.dataset.level = String(item.level || 0);
+      const title = document.createElement("h3");
+      title.className = "warn-card__title";
+      title.textContent = warningName(item);
+      const period = document.createElement("div");
+      period.className = "warn-card__period";
+      const active = (parseIsoMs(item.begins_at) || 0) <= nowMs;
+      period.textContent = `${active ? "Aktiv · " : ""}${periodLabel(item)}`;
+      card.append(title, period);
+      if (item.text) card.appendChild(warnBlock("Warnung", item.text));
+      if (item.impacts) card.appendChild(warnBlock("Mögliche Auswirkungen", item.impacts));
+      if (item.recommendations) card.appendChild(warnBlock("Empfehlungen", item.recommendations));
+      if (item.meteo_text) card.appendChild(warnBlock("Wetterlage", item.meteo_text));
+      fragment.appendChild(card);
+    });
+    nodes.warnSheetBody.replaceChildren(fragment);
+    const stamp = formatStamp(snapshot.updated_at);
+    nodes.warnSheetFooter.textContent =
+      `Quelle: GeoSphere Austria, CC BY 4.0${stamp ? ` · Stand ${stamp}` : ""}`;
+    nodes.warnSheetFooter.classList.toggle("is-behind", isBehind(snapshot));
+  }
+
+  function openWarnSheet() {
+    if (screensaverActive) return;
+    const nowMs = Date.now();
+    const list = visibleWarnings(nowMs, null);
+    if (!list.length) return;
+    renderWarnSheet(list, nowMs, true);
+    nodes.warnSheetBody.scrollTop = 0;
+    warnSheetOpen = true;
+    nodes.warnSheet.classList.add("is-open");
+    nodes.warnSheet.setAttribute("aria-hidden", "false");
+  }
+
+  function closeWarnSheet() {
+    if (!warnSheetOpen) return;
+    warnSheetOpen = false;
+    nodes.warnSheet.classList.remove("is-open");
+    nodes.warnSheet.setAttribute("aria-hidden", "true");
+  }
+
+  // ---- Current conditions ---------------------------------------------------
+  function forecastForDate(dateIso) {
+    const weather = state.weather || {};
+    const list = Array.isArray(weather.forecast) ? weather.forecast : [];
+    return list.find((item) => item.date === dateIso) || null;
+  }
+
+  function renderWeatherNow(nowMs) {
+    const weather = state.weather || {};
+    const snapshot = weather.snapshot || {};
+    const hasTemp = typeof weather.temperature_c === "number";
+    nodes.wxTemp.textContent = fmtTemp(weather.temperature_c);
+    setIcon(nodes.wxIcon, hasTemp ? weather.icon || weatherIconName(weather.condition_code) : "");
+    let condition = weather.condition || "";
+    if (snapshot.status === "disabled") condition = "Wetter nicht eingerichtet";
+    else if (!hasTemp && (snapshot.status === "empty" || !snapshot.status)) condition = "Wetterdaten werden geladen.";
+    else if (!hasTemp) condition = "Wetter nicht verfügbar";
+    nodes.wxCondition.textContent = condition;
+
+    const today = forecastForDate(SECTION_DATE_FMT.format(new Date(nowMs)));
+    const facts = [];
+    if (typeof weather.apparent_temperature_c === "number") facts.push(`Gefühlt ${fmtTemp(weather.apparent_temperature_c)}`);
+    if (today && typeof today.temperature_min_c === "number" && typeof today.temperature_max_c === "number") {
+      facts.push(`Heute ${fmtTemp(today.temperature_min_c)} bis ${fmtTemp(today.temperature_max_c)}`);
+    }
+    nodes.wxFacts.textContent = facts.join(" · ");
+
+    let wind = "";
+    if (typeof weather.wind_speed_kmh === "number") {
+      if (weather.wind_speed_kmh < 1) {
+        wind = "Windstill";
+      } else {
+        wind = `Wind ${fmtKmh(weather.wind_speed_kmh)}`;
+        if (typeof weather.wind_direction_deg === "number") wind += ` aus ${windDirectionName(weather.wind_direction_deg)}`;
+      }
+      if (typeof weather.wind_gusts_kmh === "number" && weather.wind_gusts_kmh >= 1) wind += ` · Böen ${fmtKmh(weather.wind_gusts_kmh)}`;
+    }
+    nodes.wxWind.textContent = wind;
+
+    // Model data, not a station reading — say what it is and for when.
+    const meta = [];
+    const stamp = isBehind(snapshot) ? formatStamp(snapshot.updated_at) : "";
+    if (stamp) {
+      meta.push(`Stand ${stamp}`);
+    } else if (hasTemp) {
+      const at = parseIsoMs(weather.observed_at);
+      meta.push(at !== null ? `Modellwert für ${CLOCK_TIME_FMT.format(new Date(at))}` : "Modellwert");
+    }
+    const rise = today ? parseIsoMs(today.sunrise) : null;
+    const set = today ? parseIsoMs(today.sunset) : null;
+    if (rise !== null && set !== null) {
+      meta.push(`Sonne ${CLOCK_TIME_FMT.format(new Date(rise))} – ${CLOCK_TIME_FMT.format(new Date(set))}`);
+    }
+    nodes.wxMeta.textContent = meta.join(" · ");
+    nodes.wxMeta.classList.toggle("is-behind", stamp !== "");
+  }
+
+  // ---- Chart ----------------------------------------------------------------
+  function wxMessage(title, subtitle) {
+    const box = document.createElement("div");
+    box.className = "wx-message";
+    const strong = document.createElement("div");
+    strong.className = "wx-message__title";
+    strong.textContent = title;
+    box.appendChild(strong);
+    if (subtitle) {
+      const sub = document.createElement("div");
+      sub.className = "wx-message__sub";
+      sub.textContent = subtitle;
+      box.appendChild(sub);
+    }
+    return box;
+  }
+
+  function niceStep(span, maxLines) {
+    const steps = [1, 2, 5, 10, 20];
+    return steps.find((step) => span / step <= maxLines) || 20;
+  }
+
+  function hourlyRange(nowMs) {
+    const hourStart = Math.floor(nowMs / HOUR_MS) * HOUR_MS;
+    const todayIso = SECTION_DATE_FMT.format(new Date(nowMs));
+    if (weatherView.range === "today") {
+      return { start: hourStart, end: localMidnightMs(addDaysIso(todayIso, 1)), label: "heute" };
+    }
+    if (weatherView.range === "tomorrow") {
+      const tomorrow = addDaysIso(todayIso, 1);
+      return { start: localMidnightMs(tomorrow), end: localMidnightMs(addDaysIso(tomorrow, 1)), label: "morgen" };
+    }
+    return { start: hourStart, end: hourStart + 24 * HOUR_MS, label: "die nächsten 24 Stunden" };
+  }
+
+  function hourlyMessage(series, range) {
+    const snapshot = series.snapshot || {};
+    const weatherStatus = ((state.weather || {}).snapshot || {}).status;
+    if (weatherStatus === "disabled") return wxMessage("Wetter nicht eingerichtet", "");
+    const anyPoints = Array.isArray(series.points) && series.points.length > 0;
+    if (snapshot.status === "disabled") return wxMessage("Stundenwerte nicht eingerichtet", "");
+    if (!anyPoints && (snapshot.status === "empty" || !snapshot.status)) {
+      return wxMessage("Stundenwerte werden geladen.", "");
+    }
+    if (!anyPoints) {
+      return wxMessage("Stundenwerte derzeit nicht verfügbar", "Weder GeoSphere noch Open-Meteo haben geantwortet.");
+    }
+    const until = parseIsoMs(series.valid_to);
+    return wxMessage(
+      `Keine Stundenwerte für ${range.label}`,
+      until !== null ? `Die letzten Modellwerte reichen bis ${dayTimeLabel(until, Date.now())}.` : "",
+    );
+  }
+
+  function renderHourlyChart(nowMs) {
+    const series = sectionOf("weather_hourly") || {};
+    const range = hourlyRange(nowMs);
+    const points = (Array.isArray(series.points) ? series.points : [])
+      .map((point) => ({ ...point, ms: parseIsoMs(point.time) }))
+      .filter((point) => point.ms !== null && point.ms >= range.start && point.ms <= range.end);
+    const temps = points.filter((p) => typeof p.temperature_c === "number");
+    if (!temps.length) {
+      nodes.wxChart.replaceChildren(hourlyMessage(series, range));
+      return;
+    }
+    const C = WX_CHART;
+    const plotW = C.width - C.left - C.right;
+    const x = (ms) => C.left + ((ms - range.start) / (range.end - range.start)) * plotW;
+    let lo = Math.min(...temps.map((p) => p.temperature_c));
+    let hi = Math.max(...temps.map((p) => p.temperature_c));
+    if (hi - lo < 6) {
+      const mid = (hi + lo) / 2;
+      lo = mid - 3;
+      hi = mid + 3;
+    }
+    const step = niceStep(hi - lo, 4);
+    lo = Math.floor(lo / step) * step;
+    hi = Math.ceil(hi / step) * step;
+    const yT = (v) => C.plotBottom - ((v - lo) / (hi - lo)) * (C.plotBottom - C.plotTop);
+    const precip = points.filter((p) => typeof p.precipitation_mm === "number" && p.ms > range.start);
+    const pMax = Math.max(1, Math.ceil(Math.max(0, ...precip.map((p) => p.precipitation_mm))));
+    const yP = (v) => C.plotBottom - (v / pMax) * (C.plotBottom - C.plotTop);
+
+    const out = [];
+    out.push(`<svg class="wx-chart" viewBox="0 0 ${C.width} ${C.height}" width="${C.width}" height="${C.height}" role="img" aria-label="Temperatur und Niederschlag für ${escapeXml(range.label)}">`);
+    // Temperature grid and its scale (left), precipitation scale (right).
+    for (let v = lo; v <= hi + 0.001; v += step) {
+      const y = yT(v).toFixed(1);
+      out.push(`<line class="wx-grid" x1="${C.left}" x2="${C.width - C.right}" y1="${y}" y2="${y}"></line>`);
+      out.push(`<text class="wx-axis wx-axis--temp" x="${C.left - 8}" y="${(Number(y) + 5).toFixed(1)}" text-anchor="end">${v}°</text>`);
+    }
+    out.push(`<text class="wx-axis wx-axis--rain" x="${C.width - C.right + 8}" y="${C.plotTop + 5}">${pMax} mm</text>`);
+    out.push(`<text class="wx-axis wx-axis--rain" x="${C.width - C.right + 8}" y="${C.plotBottom + 5}">0</text>`);
+    out.push(`<text class="wx-axis wx-axis--unit" x="${C.width - C.right + 8}" y="${C.plotTop + 22}">je Std</text>`);
+    // Precipitation: each bar covers the hour that ends at its point.
+    precip.forEach((p) => {
+      if (p.precipitation_mm <= 0) return;
+      const x0 = Math.max(x(p.ms - HOUR_MS), C.left) + 1.5;
+      const x1 = x(p.ms) - 1.5;
+      const y = yP(Math.min(p.precipitation_mm, pMax));
+      out.push(`<rect class="wx-bar" x="${x0.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(x1 - x0, 2).toFixed(1)}" height="${(C.plotBottom - y).toFixed(1)}" rx="2"></rect>`);
+    });
+    // Temperature line, broken where a value is missing — never bridged.
+    let run = [];
+    const flush = () => {
+      if (run.length > 1) out.push(`<polyline class="wx-line" points="${run.join(" ")}"></polyline>`);
+      if (run.length === 1) {
+        const [cx, cy] = run[0].split(",");
+        out.push(`<circle class="wx-dot" cx="${cx}" cy="${cy}" r="3"></circle>`);
+      }
+      run = [];
+    };
+    points.forEach((p) => {
+      if (typeof p.temperature_c === "number") run.push(`${x(p.ms).toFixed(1)},${yT(p.temperature_c).toFixed(1)}`);
+      else flush();
+    });
+    flush();
+    // Every three local hours: time, temperature, and a three-hour icon and
+    // wind summary. Hours are found by the zone's clock, so a 23- or 25-hour
+    // day gets the right marks.
+    const byMs = new Map(points.map((p) => [p.ms, p]));
+    const blockIcon = (from, to) => {
+      const block = points.filter((p) => p.ms > from && p.ms <= to);
+      if (!block.length) return "";
+      return block.reduce(
+        (best, p) => ((ICON_WEIGHT[p.icon] || 0) > (ICON_WEIGHT[best] || 0) ? p.icon : best),
+        block[Math.floor(block.length / 2)].icon || "unknown",
+      );
+    };
+    const drawBlockIcon = (from, to) => {
+      const icon = blockIcon(from, to);
+      const xc = (x(from) + x(Math.min(to, range.end))) / 2;
+      if (icon && xc - 14 >= C.left && xc + 14 <= C.width - C.right) {
+        out.push(svgIcon(icon, (xc - 14).toFixed(1), C.iconTop + 4, 28));
+      }
+    };
+    // The hours before the first three-hour mark get their own icon when
+    // there is room for one.
+    let firstMark = Math.ceil(range.start / HOUR_MS) * HOUR_MS;
+    while (firstMark < range.end && Number(HOUR_NUM_FMT.format(new Date(firstMark))) % 3 !== 0) {
+      firstMark += HOUR_MS;
+    }
+    if (firstMark - range.start >= 2 * HOUR_MS) drawBlockIcon(range.start, firstMark);
+    for (let t = Math.ceil(range.start / HOUR_MS) * HOUR_MS; t <= range.end; t += HOUR_MS) {
+      const hour = Number(HOUR_NUM_FMT.format(new Date(t)));
+      if (hour % 3 !== 0) continue;
+      const xm = x(t);
+      if (xm > C.left + 4 || t === range.start) {
+        out.push(`<line class="wx-tick" x1="${xm.toFixed(1)}" x2="${xm.toFixed(1)}" y1="${C.plotBottom}" y2="${C.plotBottom + 6}"></line>`);
+      }
+      const label = hour === 0 && t !== range.start ? WEEKDAY_SHORT_FMT.format(new Date(t)) : CLOCK_TIME_FMT.format(new Date(t));
+      if (xm <= C.width - C.right - 20) {
+        out.push(`<text class="wx-time" x="${xm.toFixed(1)}" y="${C.timeY}" text-anchor="${xm < C.left + 20 ? "start" : "middle"}">${label}</text>`);
+      }
+      const point = byMs.get(t);
+      if (point && typeof point.temperature_c === "number" && xm <= C.width - C.right - 12) {
+        out.push(`<text class="wx-value" x="${xm.toFixed(1)}" y="${(yT(point.temperature_c) - 10).toFixed(1)}" text-anchor="middle">${fmtTemp(point.temperature_c)}</text>`);
+      }
+      // Hours ending inside the next three: the strongest condition stands
+      // for them.
+      if (t + 2 * HOUR_MS <= range.end) drawBlockIcon(t, t + 3 * HOUR_MS);
+      if (point && typeof point.wind_speed_kmh === "number" && xm >= C.left && xm <= C.width - C.right - 30) {
+        const anchor = xm < C.left + 30 ? xm + 24 : xm;
+        let windText = `${Math.round(point.wind_speed_kmh)}`;
+        if (typeof point.wind_gusts_kmh === "number") windText += `<tspan class="wx-gust"> / ${Math.round(point.wind_gusts_kmh)}</tspan>`;
+        if (typeof point.wind_direction_deg === "number" && point.wind_speed_kmh >= 1) {
+          // The arrow points where the wind blows to.
+          out.push(`<g class="wx-arrow" transform="translate(${(anchor - 20).toFixed(1)} ${C.windY - 5}) rotate(${(point.wind_direction_deg + 180) % 360})"><path d="M0 -7 L4.5 5 L0 2.5 L-4.5 5 Z"></path></g>`);
+        }
+        out.push(`<text class="wx-wind" x="${(anchor - 10).toFixed(1)}" y="${C.windY}">${windText}</text>`);
+      }
+    }
+    out.push(`<text class="wx-axis wx-axis--unit" x="${C.left - 8}" y="${C.windY}" text-anchor="end">km/h</text>`);
+    // Where the model stops before the range does: say so, draw nothing.
+    const last = points.length ? points[points.length - 1].ms : null;
+    if (last !== null && range.end - last > HOUR_MS) {
+      const xl = x(last);
+      out.push(`<line class="wx-horizon" x1="${xl.toFixed(1)}" x2="${xl.toFixed(1)}" y1="${C.plotTop - 6}" y2="${C.plotBottom}"></line>`);
+      if (C.width - C.right - xl > 120) {
+        out.push(`<text class="wx-horizon-text" x="${(xl + 10).toFixed(1)}" y="${((C.plotTop + C.plotBottom) / 2).toFixed(1)}">Modell endet ${dayTimeLabel(last, nowMs)}</text>`);
+      }
+    }
+    out.push("</svg>");
+    nodes.wxChart.innerHTML = out.join("");
+  }
+
+  function renderRainChart(nowMs) {
+    const nowcast = sectionOf("weather_nowcast") || {};
+    const snapshot = nowcast.snapshot || {};
+    const weatherStatus = ((state.weather || {}).snapshot || {}).status;
+    const interval = (nowcast.interval_minutes || 15) * 60_000;
+    const points = (Array.isArray(nowcast.points) ? nowcast.points : [])
+      .map((p) => ({ ...p, ms: parseIsoMs(p.ends_at) }))
+      .filter((p) => p.ms !== null && p.ms > nowMs);
+    if (weatherStatus === "disabled") {
+      nodes.wxChart.replaceChildren(wxMessage("Wetter nicht eingerichtet", ""));
+      return;
+    }
+    if (!points.length) {
+      let message;
+      if (snapshot.status === "disabled") {
+        message = wxMessage("Regenvorschau für diesen Standort nicht verfügbar", "INCA deckt nur Österreich und die Randgebiete ab.");
+      } else if (snapshot.status === "empty" || !snapshot.status) {
+        message = wxMessage("Regenvorschau wird geladen.", "");
+      } else if (Array.isArray(nowcast.points) && nowcast.points.length) {
+        message = wxMessage("Regenvorschau veraltet", `Stand ${formatStamp(snapshot.updated_at)} — die Werte sind bereits vorbei.`);
+      } else {
+        message = wxMessage("Regenvorschau derzeit nicht verfügbar", "");
+      }
+      nodes.wxChart.replaceChildren(message);
+      return;
+    }
+    const C = WX_CHART;
+    const known = points.filter((p) => typeof p.precipitation_mm === "number");
+    const wet = known.filter((p) => p.precipitation_mm > 0);
+    const complete = known.length === points.length;
+    let summary;
+    if (!wet.length && complete && snapshot.status === "ok" && points.length >= NOWCAST_MIN_INTERVALS_FOR_DRY) {
+      summary = "Kein Niederschlag erwartet";
+    } else if (wet.length) {
+      summary = `Niederschlag erwartet · bis ${MM_FINE_FMT.format(Math.max(...wet.map((p) => p.precipitation_mm)))} mm in 15 Minuten`;
+      if (complete) {
+        const minutes = Math.round((points.length * interval) / 60_000);
+        const span = minutes % 60 === 0 ? `${minutes / 60} ${minutes === 60 ? "Stunde" : "Stunden"}` : `${minutes} Minuten`;
+        summary += ` · zusammen ${MM_FMT.format(known.reduce((sum, p) => sum + p.precipitation_mm, 0))} mm in ${span}`;
+      }
+    } else {
+      summary = complete ? "Bisher kein Niederschlag berechnet" : "Nicht für alle Intervalle Werte vorhanden";
+    }
+    const start = points[0].ms - interval;
+    const end = points[points.length - 1].ms;
+    const plotW = C.width - C.left - C.right;
+    const x = (ms) => C.left + ((ms - start) / (end - start)) * plotW;
+    const max = Math.max(0.5, Math.ceil(Math.max(0, ...known.map((p) => p.precipitation_mm)) * 2) / 2);
+    const plotTop = C.plotTop + 4;
+    const plotBottom = C.timeY - 22;
+    const y = (v) => plotBottom - (v / max) * (plotBottom - plotTop);
+    const out = [];
+    out.push(`<svg class="wx-chart" viewBox="0 0 ${C.width} ${C.height}" width="${C.width}" height="${C.height}" role="img" aria-label="Niederschlag der nächsten drei Stunden">`);
+    out.push(`<text class="wx-summary" x="${C.left}" y="22">${escapeXml(summary)}</text>`);
+    [0, max / 2, max].forEach((v) => {
+      const yy = y(v).toFixed(1);
+      out.push(`<line class="wx-grid" x1="${C.left}" x2="${C.width - C.right}" y1="${yy}" y2="${yy}"></line>`);
+      out.push(`<text class="wx-axis wx-axis--rain" x="${C.left - 8}" y="${(Number(yy) + 5).toFixed(1)}" text-anchor="end">${MM_FINE_FMT.format(v)}</text>`);
+    });
+    out.push(`<text class="wx-axis wx-axis--unit" x="${C.width - C.right + 8}" y="${plotTop + 5}">mm</text>`);
+    out.push(`<text class="wx-axis wx-axis--unit" x="${C.width - C.right + 8}" y="${plotTop + 22}">je 15 Min</text>`);
+    points.forEach((p) => {
+      const x0 = x(p.ms - interval) + 3;
+      const w = x(p.ms) - x0 - 3;
+      if (typeof p.precipitation_mm !== "number") {
+        out.push(`<rect class="wx-bar-missing" x="${x0.toFixed(1)}" y="${plotTop}" width="${w.toFixed(1)}" height="${plotBottom - plotTop}" rx="3"></rect>`);
+        out.push(`<text class="wx-value" x="${(x0 + w / 2).toFixed(1)}" y="${(plotBottom - 8).toFixed(1)}" text-anchor="middle">?</text>`);
+        return;
+      }
+      if (p.precipitation_mm > 0) {
+        const yy = y(Math.min(p.precipitation_mm, max));
+        out.push(`<rect class="wx-bar" x="${x0.toFixed(1)}" y="${yy.toFixed(1)}" width="${w.toFixed(1)}" height="${Math.max(plotBottom - yy, 2).toFixed(1)}" rx="3"></rect>`);
+        out.push(`<text class="wx-value" x="${(x0 + w / 2).toFixed(1)}" y="${(yy - 8).toFixed(1)}" text-anchor="middle">${MM_FINE_FMT.format(p.precipitation_mm)}</text>`);
+      } else {
+        out.push(`<rect class="wx-bar-zero" x="${x0.toFixed(1)}" y="${(plotBottom - 2).toFixed(1)}" width="${w.toFixed(1)}" height="2"></rect>`);
+      }
+    });
+    // Interval boundaries on the half hour, labelled with the local time.
+    for (let t = start; t <= end; t += interval) {
+      const label = CLOCK_TIME_FMT.format(new Date(t));
+      if (!label.endsWith("00") && !label.endsWith("30")) continue;
+      const xm = x(t);
+      out.push(`<line class="wx-tick" x1="${xm.toFixed(1)}" x2="${xm.toFixed(1)}" y1="${plotBottom}" y2="${plotBottom + 6}"></line>`);
+      out.push(`<text class="wx-time" x="${xm.toFixed(1)}" y="${C.timeY}" text-anchor="${t === start ? "start" : t === end ? "end" : "middle"}">${label}</text>`);
+    }
+    out.push(`<text class="wx-note" x="${C.left}" y="${C.windY}">Jeder Balken: Niederschlag in den 15 Minuten bis zur rechten Kante.</text>`);
+    out.push("</svg>");
+    nodes.wxChart.innerHTML = out.join("");
+  }
+
+  // A day beyond the hourly coverage: its Open-Meteo day values, and an
+  // honest line instead of an empty chart.
+  function renderFarDay(dateIso) {
+    const item = forecastForDate(dateIso);
+    if (!item) {
+      nodes.wxChart.replaceChildren(wxMessage("Für diesen Tag liegen keine Werte vor", ""));
+      return;
+    }
+    const card = document.createElement("div");
+    card.className = "wx-day";
+    const icon = document.createElement("div");
+    icon.className = "wx-day__icon";
+    setIcon(icon, item.icon || "unknown");
+    const copy = document.createElement("div");
+    copy.className = "wx-day__copy";
+    const title = document.createElement("h2");
+    title.className = "wx-day__title";
+    title.textContent = LONG_DAY_FMT.format(new Date(localMidnightMs(dateIso) + 12 * HOUR_MS));
+    const condition = document.createElement("div");
+    condition.className = "wx-day__condition";
+    condition.textContent = item.condition || "Unbekannt";
+    const facts = document.createElement("div");
+    facts.className = "wx-day__facts";
+    const parts = [`Höchstwert ${fmtTemp(item.temperature_max_c)}`, `Tiefstwert ${fmtTemp(item.temperature_min_c)}`];
+    parts.push(typeof item.precipitation_probability_max === "number" ? `Regenrisiko ${item.precipitation_probability_max} %` : "Regenrisiko –");
+    parts.push(typeof item.precipitation_sum_mm === "number" ? `Niederschlag ${MM_FMT.format(item.precipitation_sum_mm)} mm` : "Niederschlag –");
+    facts.textContent = parts.join(" · ");
+    const sun = document.createElement("div");
+    sun.className = "wx-day__sun";
+    const rise = parseIsoMs(item.sunrise);
+    const set = parseIsoMs(item.sunset);
+    sun.textContent = rise !== null && set !== null ? `Sonne ${CLOCK_TIME_FMT.format(new Date(rise))} – ${CLOCK_TIME_FMT.format(new Date(set))}` : "";
+    const hint = document.createElement("div");
+    hint.className = "wx-day__hint";
+    hint.textContent = "Stundenverlauf gibt es nur für heute und morgen. Für diesen Tag zeigt Open-Meteo Tageswerte.";
+    copy.append(title, condition, facts, sun, hint);
+    card.append(icon, copy);
+    nodes.wxChart.replaceChildren(card);
+  }
+
+  function renderWeek(nowMs) {
+    const weather = state.weather || {};
+    const todayIso = SECTION_DATE_FMT.format(new Date(nowMs));
+    const items = (Array.isArray(weather.forecast) ? weather.forecast : [])
+      .filter((item) => item.date && item.date >= todayIso)
+      .slice(0, 7);
+    if (!items.length) {
+      const snapshot = weather.snapshot || {};
+      const text = snapshot.status === "disabled" ? "" : snapshot.status === "empty" || !snapshot.status ? "Tageswerte werden geladen." : "Tageswerte derzeit nicht verfügbar";
+      nodes.wxWeek.replaceChildren(wxMessage(text, ""));
+      return;
+    }
+    const selected = weatherView.range === "today" ? todayIso : weatherView.range === "tomorrow" ? addDaysIso(todayIso, 1) : weatherView.day;
+    const fragment = document.createDocumentFragment();
+    items.forEach((item) => {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "wx-week__day";
+      cell.dataset.date = item.date;
+      cell.classList.toggle("is-selected", weatherView.mode === "hours" && item.date === selected);
+      const name = document.createElement("span");
+      name.className = "wx-week__name";
+      name.textContent = item.date === todayIso ? "Heute" : item.date === addDaysIso(todayIso, 1) ? "Morgen" : WEEKDAY_SHORT_FMT.format(new Date(localMidnightMs(item.date) + 12 * HOUR_MS));
+      const icon = document.createElement("span");
+      icon.className = "wx-week__icon";
+      setIcon(icon, item.icon || "unknown");
+      const temps = document.createElement("span");
+      temps.className = "wx-week__temps";
+      temps.textContent = fmtTemp(item.temperature_max_c);
+      const min = document.createElement("span");
+      min.className = "wx-week__min";
+      min.textContent = fmtTemp(item.temperature_min_c);
+      temps.appendChild(min);
+      const rain = document.createElement("span");
+      rain.className = "wx-week__rain";
+      rain.textContent = typeof item.precipitation_probability_max === "number" ? `${item.precipitation_probability_max} %` : "– %";
+      cell.setAttribute("aria-label", `${name.textContent}: ${item.condition || ""}`);
+      cell.append(name, icon, temps, rain);
+      fragment.appendChild(cell);
+    });
+    nodes.wxWeek.replaceChildren(fragment);
+  }
+
+  function renderWeatherSource() {
+    const parts = [];
+    let behind = false;
+    const stampOf = (snapshot) => {
+      const stamp = formatStamp(snapshot.updated_at);
+      if (isBehind(snapshot)) behind = true;
+      return stamp ? `Stand ${stamp}` : "";
+    };
+    if (weatherView.mode === "rain") {
+      const nowcast = sectionOf("weather_nowcast") || {};
+      const snapshot = nowcast.snapshot || {};
+      const run = parseIsoMs(nowcast.model_run);
+      parts.push(["Regen: GeoSphere INCA", run !== null ? `Lauf ${formatStamp(nowcast.model_run)}` : "", stampOf(snapshot)].filter(Boolean).join(" · "));
+    } else {
+      const series = sectionOf("weather_hourly") || {};
+      const snapshot = series.snapshot || {};
+      let name = `Stunden: ${sourceLabel(snapshot)}`;
+      if (series.fallback) name += " (GeoSphere nicht verfügbar)";
+      const run = parseIsoMs(series.model_run);
+      parts.push([name, run !== null ? `Lauf ${formatStamp(series.model_run)}` : "", stampOf(snapshot)].filter(Boolean).join(" · "));
+    }
+    const weatherSnapshot = (state.weather || {}).snapshot || {};
+    parts.push(["Aktuell & 7 Tage: Open-Meteo", isBehind(weatherSnapshot) ? stampOf(weatherSnapshot) : ""].filter(Boolean).join(" · "));
+    parts.push("CC BY 4.0: GeoSphere Austria, Open-Meteo.com");
+    const text = parts.join("  |  ");
+    if (nodes.wxSource.textContent !== text) nodes.wxSource.textContent = text;
+    nodes.wxSource.classList.toggle("is-behind", behind);
+  }
+
+  function syncWeatherControls() {
+    nodes.wxMode.querySelectorAll("[data-wx-mode]").forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.wxMode === weatherView.mode);
+    });
+    const hours = weatherView.mode === "hours";
+    nodes.wxRange.classList.toggle("is-hidden", !hours);
+    nodes.wxRainNote.classList.toggle("is-hidden", hours);
+    nodes.wxRange.querySelectorAll("[data-wx-range]").forEach((button) => {
+      button.classList.toggle("is-selected", hours && weatherView.range === button.dataset.wxRange);
+    });
+  }
+
+  function weatherDetailKey(nowMs) {
+    const bucket = weatherView.mode === "rain" ? Math.floor(nowMs / QUARTER_MS) : Math.floor(nowMs / HOUR_MS);
+    return sectionRenderKey([
+      state.weather,
+      state.weather_hourly,
+      weatherView.mode === "rain" ? state.weather_nowcast : null,
+      weatherView,
+      bucket,
+      SECTION_DATE_FMT.format(new Date(nowMs)),
+    ]);
+  }
+
+  // Everything except the warning hint, which the minute tick refreshes on
+  // its own because a warning ends on the minute, not on the hour.
+  function renderWeatherDetail(force) {
+    if (activeScreen !== "weather" || screensaverActive) return;
+    const nowMs = Date.now();
+    renderWarningHint(nowMs);
+    const key = weatherDetailKey(nowMs);
+    if (!force && key === lastWeatherDetailKey) return;
+    lastWeatherDetailKey = key;
+    syncWeatherControls();
+    renderWeatherNow(nowMs);
+    if (weatherView.mode === "rain") renderRainChart(nowMs);
+    else if (weatherView.range === "day") renderFarDay(weatherView.day);
+    else renderHourlyChart(nowMs);
+    renderWeatherSource();
+    renderWeek(nowMs);
+  }
+
+  function selectWeatherView(change) {
+    Object.assign(weatherView, change);
+    renderWeatherDetail(true);
+  }
+
+  function resetWeatherView() {
+    weatherView.mode = "hours";
+    weatherView.range = "next24";
+    weatherView.day = "";
+    lastWeatherDetailKey = "";
+  }
+
+  function selectWeatherDay(dateIso) {
+    const todayIso = SECTION_DATE_FMT.format(new Date());
+    if (dateIso === todayIso) selectWeatherView({ mode: "hours", range: "today", day: "" });
+    else if (dateIso === addDaysIso(todayIso, 1)) selectWeatherView({ mode: "hours", range: "tomorrow", day: "" });
+    else selectWeatherView({ mode: "hours", range: "day", day: dateIso });
+  }
+
   function spotifyColumnLayoutKey() {
     return nodes.cardsColumn ? nodes.cardsColumn.dataset.music || "" : null;
   }
@@ -1890,6 +2783,10 @@
       lastRenderedSectionKeys.calendar = keys.calendar;
     }
     renderStatusRail();
+    // #22: cheap — both compare text before they write. The detail screen
+    // renders only while it is the visible one.
+    renderScreensaverWarning();
+    renderWeatherDetail(Boolean(options.force));
     // Ticket #3: timers are keyed on identity + ends_at, not on the server's
     // remaining_seconds, which changes every poll by definition.
     const timerKey = sectionRenderKey(
@@ -1963,16 +2860,24 @@
 
   // One request at a time: the poll and exitScreensaver share it instead of
   // racing two responses into render().
-  function fetchState() {
+  // A caller that needs a counted result (the wake-up) does not ride on a
+  // quiet screensaver poll (#22): it runs its own request right after it.
+  let stateRequestQuiet = false;
+
+  function fetchState(options = {}) {
+    if (stateRequest && stateRequestQuiet && !options.quiet) {
+      return stateRequest.then(() => fetchState(options));
+    }
     if (!stateRequest) {
-      stateRequest = requestState().finally(() => {
+      stateRequestQuiet = Boolean(options.quiet);
+      stateRequest = requestState(options).finally(() => {
         stateRequest = null;
       });
     }
     return stateRequest;
   }
 
-  async function requestState() {
+  async function requestState({ quiet = false } = {}) {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), STATE_REQUEST_TIMEOUT_MS);
     let payload = null;
@@ -1997,12 +2902,12 @@
       }
     } catch (error) {
       window.console.debug("state refresh failed", error);
-      noteStateContact(false);
+      if (!quiet) noteStateContact(false);
       return;
     } finally {
       window.clearTimeout(timeout);
     }
-    noteStateContact(true);
+    if (!quiet) noteStateContact(true);
     if (payload === null) {
       return;
     }
@@ -2018,11 +2923,21 @@
     stateEtag = nextEtag || stateEtag;
   }
 
+  // #22: the screensaver shows official warnings, so it cannot go without
+  // state for hours. It polls every SCREENSAVER_POLL_MS instead of every few
+  // seconds, and those polls never count for the lost-link hint (#18): an
+  // outage is judged on wake, as before.
+  const SCREENSAVER_POLL_MS = 5 * 60 * 1000;
+  let lastScreensaverPollAt = 0;
+
   function schedulePolling() {
     window.clearTimeout(pollTimer);
     pollTimer = window.setTimeout(async function poll() {
       if (!screensaverActive) {
         await fetchState();
+      } else if (performance.now() - lastScreensaverPollAt >= SCREENSAVER_POLL_MS) {
+        lastScreensaverPollAt = performance.now();
+        await fetchState({ quiet: true });
       }
       schedulePolling();
     }, POLL_INTERVAL_MS);
@@ -2179,8 +3094,12 @@
     queueRefreshTimer = window.setInterval(loadSpotifyQueue, QUEUE_REFRESH_MS);
   }
 
+  // #22: three screens in a line. A swipe moves one step and stops at either
+  // end — there is no wrap from the weather screen back to home.
+  const SCREEN_ORDER = ["home", "spotify", "weather"];
+
   function setActiveScreen(target, options = {}) {
-    if (!nodes.screenStage || !["home", "spotify"].includes(target)) {
+    if (!nodes.screenStage || !SCREEN_ORDER.includes(target)) {
       return;
     }
     const animate = options.animate !== false;
@@ -2199,6 +3118,7 @@
     [
       [nodes.homeScreen, "home"],
       [nodes.spotifyScreen, "spotify"],
+      [nodes.weatherScreen, "weather"],
     ].forEach(([screen, name]) => {
       const selected = name === target;
       screen.classList.toggle("is-active", selected);
@@ -2216,9 +3136,17 @@
       // applyWatchFace and showScreensaver.
       stopAnalogSecondTick();
       startQueueRefresh();
+    } else if (target === "weather") {
+      // #22: the queue is Spotify's alone; the chart is drawn on arrival.
+      stopAnalogSecondTick();
+      stopQueueRefresh();
+      renderWeatherDetail(false);
     } else {
       stopQueueRefresh();
       applyWatchFace(document.body.getAttribute("data-watch-face") || "flip");
+    }
+    if (target !== "weather") {
+      closeWarnSheet();
     }
     // Both progress renderers are gated on the visible screen, so repaint the
     // one that just became visible instead of waiting up to a second for it.
@@ -2398,11 +3326,11 @@
     // whatever sits under the finger — the Spotify tile covers a third of the
     // column now, so that is a real misfire, not a theoretical one.
     suppressClickUntil = performance.now() + 150;
-    const target = dx < 0 ? "spotify" : "home";
-    if (target === activeScreen) {
+    const index = SCREEN_ORDER.indexOf(activeScreen) + (dx < 0 ? 1 : -1);
+    if (index < 0 || index >= SCREEN_ORDER.length) {
       return;
     }
-    setActiveScreen(target);
+    setActiveScreen(SCREEN_ORDER[index]);
   }
 
   // ---- Detail-screen seek ------------------------------------------------
@@ -3009,7 +3937,10 @@
       return;
     }
     screensaverActive = true;
+    lastScreensaverPollAt = performance.now();
+    closeWarnSheet();
     setActiveScreen("home", { animate: false });
+    resetWeatherView();
     stopProgressTimer();
     stopAnalogSecondTick();
     closeSpotifyPicker();
@@ -3528,8 +4459,26 @@
       nodes.toast.addEventListener("pointerdown", hideToast, { passive: true });
     }
 
+    // #22: weather screen controls. All are plain buttons inside the stage,
+    // so a horizontal drag across them still pages and its synthetic click
+    // is swallowed by the stage's capture handler below.
+    nodes.wxMode.querySelectorAll("[data-wx-mode]").forEach((button) => {
+      button.addEventListener("click", () => selectWeatherView({ mode: button.dataset.wxMode }));
+    });
+    nodes.wxRange.querySelectorAll("[data-wx-range]").forEach((button) => {
+      button.addEventListener("click", () => selectWeatherView({ mode: "hours", range: button.dataset.wxRange, day: "" }));
+    });
+    nodes.wxWeek.addEventListener("click", (event) => {
+      const cell = event.target.closest && event.target.closest("[data-date]");
+      if (cell) selectWeatherDay(cell.dataset.date);
+    });
+    nodes.wxWarn.addEventListener("click", openWarnSheet);
+    nodes.warnSheetClose.addEventListener("click", closeWarnSheet);
+    nodes.warnSheetBackdrop.addEventListener("click", closeWarnSheet);
+
     if (nodes.screenStage) {
       nodes.spotifyScreen.setAttribute("inert", "");
+      nodes.weatherScreen.setAttribute("inert", "");
       createGestureTracker(nodes.screenStage, {
         onBegin: beginPageSwipe,
         onFinish: finishPageSwipe,

@@ -44,6 +44,16 @@ VOLATILE_KEYS = frozenset({"progress_ms", "generated_at", "updated_at"})
 FIRST_FETCH_GRACE_SECONDS = 180.0
 FIRST_FETCH_RETRY_SECONDS = 30.0
 
+# #22: the weather detail sources, each its own section with its own snapshot
+# (see DashboardState). They go through update_section/mark_error like the
+# three home sections.
+DETAIL_SECTIONS = (
+    "weather_hourly_geosphere",
+    "weather_hourly_openmeteo",
+    "weather_nowcast",
+    "weather_warnings",
+)
+
 
 def _strip_volatile(value: Any) -> Any:
     if isinstance(value, dict):
@@ -83,6 +93,7 @@ class StateStore:
             "weather": self._state.weather.snapshot,
             "calendar": self._state.calendar.snapshot,
             "spotify": self._state.spotify.snapshot,
+            **{name: getattr(self._state, name).snapshot for name in DETAIL_SECTIONS},
             "screensaver": ProviderSnapshot(status="empty", source="screensaver"),
         }
 
@@ -98,9 +109,7 @@ class StateStore:
         with self._lock:
             return self._state.to_dict()
 
-    def update_section(
-        self, section_name: str, section: WeatherState | CalendarState | SpotifyState
-    ) -> None:
+    def update_section(self, section_name: str, section: Any) -> None:
         with self._lock:
             setattr(self._state, section_name, section)
             self._answered.add(section_name)
@@ -290,7 +299,8 @@ class StateStore:
                 # "never fetched", so a carried-over stamp would invent a past
                 # success the moment the first fetch fails. The providers
                 # re-report on their first tick.
-                for section in (state.weather, state.calendar, state.spotify):
+                for name in DETAIL_SECTIONS + ("weather", "calendar", "spotify"):
+                    section = getattr(state, name)
                     if section.snapshot.status == "empty":
                         section.snapshot.updated_at = None
                         section.snapshot.error_message = None

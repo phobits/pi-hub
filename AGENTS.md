@@ -38,7 +38,7 @@ Wenn du eine Änderung planst, die diese Leitplanken verletzt, brauchst du eine 
 
 ## Aktueller UI-Maßstab
 
-Die UI hat zwei Screens, gewechselt per horizontalem Wisch (rein client-seitig, beide liegen im selben Dokument — kein Router, kein zweiter Seitenaufruf). Es gibt **bewusst keine Seitenindikatoren**: Der Inhalt sagt eindeutig, auf welchem Screen man ist, und gestapelte Punkte widersprachen der horizontalen Wischrichtung. Nicht wieder einführen.
+Die UI hat drei Screens in fester Reihenfolge Home → Spotify → Wetter, gewechselt per horizontalem Wisch (rein client-seitig, alle liegen im selben Dokument — kein Router, kein zweiter Seitenaufruf). Die Reihe ist linear: Am ersten und am letzten Screen läuft der Wisch ins Leere, kein Umlauf. Es gibt **bewusst keine Seitenindikatoren**: Der Inhalt sagt eindeutig, auf welchem Screen man ist, und gestapelte Punkte widersprachen der horizontalen Wischrichtung. Nicht wieder einführen.
 
 **Screen 1 — Homescreen (Standard), Stand „Glance“.** Keine Karten,
 keine Rahmen: Hierarchie entsteht aus Schriftgröße, Gewicht und Abstand, und nur
@@ -50,6 +50,20 @@ Antippbares bekommt eine Fläche (Musik-Leiste, nächster Termin). Die Zielhiera
 Die Gewichtung war früher umgekehrt (Termine breit). Ein Termin besteht aus Uhrzeit und kurzem Titel und braucht die Breite nicht; die Uhr schon. Nicht zurückdrehen.
 
 **Screen 2 — Spotify-Steuerung.** Cover 380 px, Scrubbing mit Restzeit („−2:57“) statt Gesamtzeit, Transport- und Lautstärkeregler mit Symbol, die nächsten vier Titel der Warteschlange mit Dauer sowie das Geräte-/Playlist-Overlay. Screen 2 besitzt die **gesamte** Spotify-Interaktion — Screen 1 ist reine Anzeige, es gibt nichts mehr zu synchronisieren. Die Warteschlange wird nur geladen, solange dieser Screen sichtbar ist; der Screensaver setzt die UI immer auf den Homescreen zurück. Zurück geht es nur per Wisch — kein „Start“-Knopf, bewusst.
+
+**Screen 3 — Wetter-Detail (#22).** Erreichbar nur per Wisch von Spotify aus; der Homescreen bekommt dafür **keinen** Einstieg und keine zusätzliche Wetterinfo. Oben links „jetzt“ (Temperatur, Zustand, gefühlt, Min/Max heute, Wind mit Richtung und Böen; Zeile „Modellwert für …“, weil Open-Meteo keine Stationsmessung ist; Sonnenauf-/-untergang), oben rechts der Warnhinweis (Tipp öffnet die Details), darunter Umschalter „Stunden · Regen“ und „24 Std · Heute · Morgen“, die große Grafik (968×236 SVG) und die Wochenleiste mit sieben Tagen. Regeln, die nicht still zurückgebaut werden dürfen:
+
+- **Eine Stundenreihe, nie gemischt.** C-LAEF (GeoSphere) ist die Quelle; hat C-LAEF nichts Aktuelles, zeigt die ganze Grafik Open-Meteo, und die Quellenzeile sagt es. Keine Stunde wird aus dem anderen Modell ergänzt, INCA wird nicht mit Stundenwerten verlängert. Vergangene Stunden werden nie gezeichnet; reicht das Modell nicht bis zum Ende des Bereichs, steht „Modell endet …“ statt einer erfundenen Fortsetzung.
+- **Regen** zeigt INCA: 3 Stunden in 15-Minuten-Balken, Achse „mm je 15 Min“. „Kein Niederschlag erwartet“ nur bei gültigem, aktuellem (`ok`) und vollständigem Abruf; fehlende Intervalle sind gestrichelte „?“-Balken, nicht 0 mm. Keine minutengenaue Aussage „Regen ab 14:07“.
+- **Wochenleiste** (Open-Meteo-Tageswerte, auch für heute und morgen): Tag, Symbol, Max/Min, Regenwahrscheinlichkeit. Tipp auf heute/morgen wählt den Stundenbereich; Tipp auf einen späteren Tag zeigt dessen Tageswerte und den Hinweis, dass es Stundenwerte nur für heute und morgen gibt — kein leeres Schein-Diagramm.
+- **Unbekannt bleibt unbekannt.** Fehlende Werte sind „–“, nie 0 mm, 0 %, 0 °C oder windstill; ein fehlendes Symbol ist ein neutrales Fragezeichen, keine Sonne. Regenwahrscheinlichkeit gibt es nur, wo die Quelle sie liefert (Open-Meteo), C-LAEF bekommt keine erfundene.
+- **Quellenzeile** unten: Quelle, Modelllauf und — nur wenn veraltet — „Stand …“ in Bernstein, plus „CC BY 4.0: GeoSphere Austria, Open-Meteo.com“.
+- Gerendert wird nur, solange der Screen sichtbar ist, und nur bei geänderten Daten, neuer Auswahl oder voller Stunde (im Regenmodus Viertelstunde). Keine Animation. Alle Bedienelemente ≥ 44 px hoch.
+- Ein horizontaler Wisch, der auf einem Knopf beginnt, blättert die Seite und wählt nichts; ein Wisch nach oben öffnet auch hier das Schnellmenü.
+
+**Amtliche Warnungen (GeoSphere).** Die Gemeinde bestimmt der Server per Punktabfrage aus den konfigurierten Koordinaten (`getWarningsForCoords`), nie über einen Namen. Warnungen werden auch abgefragt, wenn der Wetter-Screen nicht sichtbar ist. Sortiert nach amtlicher Stufe, dann Beginn. Sichtbar bis zum Ende (exklusiv) — ohne neuen Abruf, das Frontend vergleicht nur Zeitstempel. **Sichere Regel für kaputte Zeiten:** fehlt das Ende oder liegt es nicht nach dem Beginn, gilt die Warnung höchstens 3 Stunden nach dem letzten erfolgreichen Abruf, der sie noch geliefert hat (`UNBOUNDED_WARNING_HOLD` in `weather_detail.py`); fehlt der Beginn, gilt sie als aktiv. „Keine Warnungen“ steht nur nach einem erfolgreichen Abruf; ein erfolgreicher leerer Abruf ist die Entwarnung. Scheitert der Abruf, bleiben bestätigte, nicht abgelaufene Warnungen mit „Stand …“ stehen; ohne bekannte Warnungen gibt es keinen Alarm, sondern „Warnungen derzeit nicht verfügbar“. Ein Warnungsfehler macht das Wetter nicht „veraltet“. Die Details liegen in einem begrenzten Overlay, das in sich scrollt; Schließen (×, Tipp daneben) blättert nie die Seite.
+
+**Warnzeile im Screensaver.** Aktive und innerhalb von 24 Stunden beginnende Warnungen: die wichtigste als eine Zeile („Orange Windwarnung · bis 16:00“), weitere als „+N“, bei Abruffehler „· Stand …“. Kein Ticker, keine Animation, kein Tippziel (`pointer-events: none`, liegt bewusst außerhalb von `.screensaver__info`, damit die Weck-Fläche der Uhr nicht wächst), kein automatisches Wecken. Foto-Modus oben links, Nacht und Flip-Fallback oben mittig — Uhr und Timer bleiben frei. Damit Warnungen ankommen, pollt der Screensaver `/api/state` alle 5 Minuten statt gar nicht; diese Polls zählen nie für „Anzeige wird aktualisiert“ (#18).
 
 Wichtige aktuelle UI-Entscheidungen:
 
@@ -75,7 +89,7 @@ unteren Rand öffnet ein Sheet mit Timer, Uhr-Stil, Nachtmodus, einem Chip, der
 den Screensaver sofort startet (normaler Tipp, kein Halten — harmlos und per
 Tipp auf die Uhr rückgängig), und den beiden Power-Aktionen. Der Griff (44×4 px, Trefferfläche 120×26 px) ist **kein**
 Seitenindikator: Er zeigt eine Kante, die sich hochziehen lässt, und liegt in
-der Body-Padding-Zone, damit er auf beiden Screens nichts überdeckt. Power-Aktionen
+der Body-Padding-Zone, damit er auf keinem Screen etwas überdeckt. Power-Aktionen
 nur mit 2-s-Halten, nie per Tipp; ohne `APP_ALLOW_SHUTDOWN=true` sind sie
 deaktiviert und sagen warum.
 
@@ -127,14 +141,15 @@ Für lokale UI-Prüfung:
 - Demo-Server: `python3 -m smart_display.local_server`
 - Zielansicht immer auch in `1024x600` prüfen: `python3 scripts/screenshot-states.py OUT_DIR`
   rendert alle Faces und Zustände (Leerlauf, Timer, Nacht, leer, offline,
-  tagealt, Erstabruf fehlgeschlagen, lokale Störung, Screensaver, Sheet, Alarm)
+  tagealt, Erstabruf fehlgeschlagen, lokale Störung, Screensaver, Sheet, Alarm,
+  Wetter-Detail mit Regen/Morgen/fernem Tag/Warnungen/Teilausfall, Screensaver mit Warnung)
   gegen den Demo-Server — headless Chromium, nicht
   WebKit; der Gerätecheck bleibt.
-- Touch-Gesten (Seitenwisch, Schnellmenü, Screensaver): `python3 scripts/check-gestures.py`
+- Touch-Gesten (Seitenwisch über drei Screens, Wetter-Bedienung und Warn-Overlay, Schnellmenü, Screensaver): `python3 scripts/check-gestures.py`
   gegen den Demo-Server, WebKit und Chromium; `--self-test` prüft, dass das Skript
   eine eingebaute Störung erkennt. Beide Flächen teilen sich `createGestureTracker`
   in `app.js` — Engine-Handling (Pointer/Touch, Abbruch) nur dort ändern.
-- State-Poll, Datenalter, Statusleiste, Leer-/Fehlertexte: `python3 scripts/check-freshness.py`
+- State-Poll, Datenalter, Statusleiste, Leer-/Fehlertexte, Warnungs-Ablauf und Wetter-Zeitachsen: `python3 scripts/check-freshness.py`
   gegen den Demo-Server, WebKit und Chromium, Zeit über `page.clock`; `--self-test`
   liefert das `app.js` von v0.11.4 aus und verlangt, dass jeder positive Fall daran scheitert.
 

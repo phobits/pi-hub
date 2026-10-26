@@ -5,7 +5,7 @@ from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from smart_display.cache.disk_cache import DiskCache
@@ -14,6 +14,7 @@ from smart_display.models import PhotoManifestEntry
 from smart_display.night import is_night, window_for_ui
 from smart_display.scheduler import DEFAULT_PAUSE_TTL_SECONDS
 from smart_display.system_probe import time_is_synchronized
+from smart_display.weather_detail import prepare_warnings, select_hourly
 from smart_display.watch_faces import (
     QLOCKTWO_GRID,
     QLOCKTWO_OOE_GRID,
@@ -51,7 +52,21 @@ def _with_runtime_flags(state: dict, services: dict) -> dict:
     timer_service = services.get("timer_service")
     if timer_service is not None:
         state["timers"] = timer_service.list()
+    # #22: one hourly series instead of both, and the warnings sorted with
+    # their visibility end. Truncated to the hour so the ETag only changes
+    # when the selection can.
+    now = services.get("utcnow", _utcnow)()
+    hour = now.replace(minute=0, second=0, microsecond=0)
+    state["weather_hourly"] = select_hourly(state, now)
+    state.pop("weather_hourly_geosphere", None)
+    state.pop("weather_hourly_openmeteo", None)
+    if "weather_warnings" in state:
+        state["weather_warnings"] = prepare_warnings(state["weather_warnings"], hour)
     return state
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _encode_state(state: dict) -> tuple[bytes, str]:

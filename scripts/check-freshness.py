@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check how the panel shows a lost backend and how old its data is (#18, #19, #20).
+"""Check how the panel shows a lost backend and how old its data is (#18, #19, #20, #22).
 
 Development aid, not a ship gate: like check-gestures.py this drives
 Playwright's WebKit and Chromium, neither of which is the Cog/WPE build on the
@@ -137,6 +137,57 @@ def compose(*mutators):
     def apply(state: dict) -> dict:
         for mutate in mutators:
             state = mutate(state)
+        return state
+    return apply
+
+
+# #22: weather detail and warnings. Times are absolute, like the case clock.
+
+def warning_item(wid: str, *, begins: datetime, ends: datetime, level: int = 2, wtype: int = 1,
+                 visible_until: datetime | None = None) -> dict:
+    return {"id": wid, "version": 1, "type": wtype, "type_label": "", "level": level,
+            "level_label": "", "begins_at": iso(begins), "ends_at": iso(ends),
+            "visible_until": iso(visible_until or ends), "text": "Warnung", "impacts": "",
+            "recommendations": "", "meteo_text": ""}
+
+
+def warnings(items: list, status: str = "ok", updated_at: str | None = None):
+    def apply(state: dict) -> dict:
+        state["weather_warnings"] = {
+            "snapshot": {"status": status, "updated_at": updated_at, "stale_after_seconds": 600,
+                         "error_message": None, "source": "geosphere-warnings"},
+            "municipality_id": "90101", "municipality_name": "Wien-Innere Stadt", "items": items}
+        return state
+    return apply
+
+
+def hourly_series(start: datetime, hours: int, status: str = "ok", updated_at: str | None = None):
+    """An hourly C-LAEF-shaped series from ``start`` (UTC hour ends)."""
+    def apply(state: dict) -> dict:
+        base = start.astimezone(timezone.utc)
+        points = [{"time": iso(base + timedelta(hours=h)), "temperature_c": 8.0 + (h % 12),
+                   "precipitation_mm": 0.0, "precipitation_probability": None,
+                   "wind_speed_kmh": 10.0, "wind_direction_deg": 270.0, "wind_gusts_kmh": 20.0,
+                   "icon": "cloudy", "condition": "Bedeckt"} for h in range(hours)]
+        state["weather_hourly"] = {
+            "snapshot": {"status": status, "updated_at": updated_at or iso(start),
+                         "stale_after_seconds": 7200, "error_message": None, "source": "geosphere-claef"},
+            "model_run": iso(start - timedelta(hours=6)), "valid_from": points[0]["time"],
+            "valid_to": points[-1]["time"], "points": points, "fallback": False,
+            "primary_status": status}
+        return state
+    return apply
+
+
+def nowcast(start: datetime, amounts: list, status: str = "ok"):
+    def apply(state: dict) -> dict:
+        base = start.astimezone(timezone.utc)
+        state["weather_nowcast"] = {
+            "snapshot": {"status": status, "updated_at": iso(start), "stale_after_seconds": 1800,
+                         "error_message": None, "source": "geosphere-inca"},
+            "model_run": iso(base), "interval_minutes": 15,
+            "points": [{"ends_at": iso(base + timedelta(minutes=15 * (i + 1))), "precipitation_mm": a}
+                       for i, a in enumerate(amounts)]}
         return state
     return apply
 
@@ -296,6 +347,26 @@ class Run:
         await self.page.click("#screensaver-start")
         await self.page.wait_for_timeout(100)
 
+    async def to_weather(self) -> None:
+        """Two left swipes with the mouse (pointer events), home → weather."""
+        for _ in range(2):
+            await self.page.mouse.move(820, 300)
+            await self.page.mouse.down()
+            for step in range(1, 7):
+                await self.page.mouse.move(820 - step * 80, 300)
+            await self.page.mouse.up()
+            await self.page.wait_for_timeout(60)
+        if await self.page.evaluate("document.getElementById('screen-stage').dataset.activeScreen") != "weather":
+            raise RuntimeError("did not reach the weather screen")
+
+    async def minutes(self, count: int) -> None:
+        for _ in range(count):
+            await self.page.clock.run_for(60_000)
+            await self.page.wait_for_timeout(5)
+
+    async def warning_line(self) -> str:
+        return await self.text("#screensaver-warning-text") if await self.shown("#screensaver-warning") else ""
+
 
 LOST = "Anzeige wird aktualisiert"
 NOW = vienna(2026, 10, 25, 12, 0)   # the CEST → CET day itself
@@ -385,23 +456,26 @@ async def _not_modified(run: Run):
         return f"rail {note!r}, {run.not_modified} × 304 of {run.requests}"
 
 
-@case("Zwei Stunden Screensaver: kein Fehlalarm, danach wird ein Ausfall wieder erkannt")
+# #22 changed this deliberately: the screensaver shows official warnings, so
+# it polls every 5 min instead of not at all (≤ 24 polls in 2 h, not ~1400;
+# fewer when an awaited poll lets the cadence slip by one clock step).
+# Those polls never feed the lost-link hint — the second hour has no backend.
+@case("Zwei Stunden Screensaver: langsamer Poll, kein Fehlalarm, danach wird ein Ausfall erkannt")
 async def _screensaver(run: Run):
     await run.fresh(now=NOW)
     await run.start_screensaver()
     before = run.requests
-    for _ in range(120):
-        await run.page.clock.run_for(60_000)
-        await run.page.wait_for_timeout(5)
-    polled = run.requests - before
+    await run.minutes(60)
     run.mode = "refused"
+    await run.minutes(60)
+    polled = run.requests - before
     await run.page.keyboard.press("Escape")
     await run.page.wait_for_timeout(100)
     await run.advance(3)
     right_after = await run.rail_note()
     await run.advance(40)
     later = await run.rail_note()
-    if polled or right_after or later != LOST:
+    if not 15 <= polled <= 25 or right_after or later != LOST:
         return f"{polled} polls during pause, rail {right_after!r} on wake, {later!r} 40 s later"
 
 
@@ -563,6 +637,159 @@ async def _precedence(run: Run):
             or not await run.shown("#timer-chip") or not fits:
         return (f"calendar {calendar_note!r} clipped={calendar_clipped}, then {note!r} clipped={clipped}, "
                 f"chip {await run.shown('#timer-chip')}, boxes {boxes}")
+
+
+# ---- #22: warnings and the weather screen -------------------------------------------------
+
+@case("Warnung endet ohne neuen Abruf pünktlich")
+async def _warning_expires(run: Run):
+    item = warning_item("w", begins=NOW - timedelta(hours=1), ends=NOW + timedelta(minutes=10))
+    await run.fresh(now=NOW, mutate=warnings([item], updated_at=iso(NOW)))
+    await run.start_screensaver()
+    before = await run.warning_line()
+    await run.minutes(9)
+    still = await run.warning_line()
+    await run.minutes(2)
+    after = await run.warning_line()
+    if not before.startswith("Orange Windwarnung") or not still or after:
+        return f"{before!r} → {still!r} → {after!r}"
+
+
+@case("Künftige Warnung erscheint erst innerhalb von 24 Stunden")
+async def _warning_future(run: Run):
+    item = warning_item("w", begins=NOW + timedelta(hours=24, minutes=30), ends=NOW + timedelta(hours=30),
+                        level=1, wtype=3)
+    await run.fresh(now=NOW, mutate=warnings([item], updated_at=iso(NOW)))
+    await run.start_screensaver()
+    early = await run.warning_line()
+    await run.minutes(31)
+    later = await run.warning_line()
+    if early or not later.startswith("Gelbe Schneewarnung · ab morgen"):
+        return f"{early!r} → {later!r}"
+
+
+@case("Mehrere Warnungen: die schwerste zuerst, der Rest als +N")
+async def _warning_many(run: Run):
+    items = [warning_item("r", begins=NOW + timedelta(hours=2), ends=NOW + timedelta(hours=6), level=3, wtype=5),
+             warning_item("o", begins=NOW - timedelta(hours=1), ends=NOW + timedelta(hours=8), level=2),
+             warning_item("y", begins=NOW + timedelta(hours=30), ends=NOW + timedelta(hours=40), level=1)]
+    await run.fresh(now=NOW, mutate=warnings(items, updated_at=iso(NOW)))
+    await run.start_screensaver()
+    line = await run.warning_line()
+    if line != "Rote Gewitterwarnung · ab 14:00 · +1":
+        return repr(line)
+
+
+@case("Warnabruf scheitert: bekannte Warnung bleibt mit Stand, ohne bekannte kein Alarm")
+async def _warning_stale(run: Run):
+    item = warning_item("w", begins=NOW - timedelta(hours=1), ends=NOW + timedelta(hours=3))
+    await run.fresh(now=NOW, mutate=warnings([item], status="stale",
+                                             updated_at=iso(vienna(2026, 10, 25, 9, 30))))
+    await run.start_screensaver()
+    stale = await run.warning_line()
+    await run.fresh(now=NOW, mutate=warnings([], status="error"))
+    await run.start_screensaver()
+    none = await run.warning_line()
+    await run.page.keyboard.press("Escape")
+    await run.to_weather()
+    hint = await run.text("#wx-warn-title")
+    if stale != "Orange Windwarnung · bis 15:00 · Stand 09:30" or none \
+            or hint != "Warnungen derzeit nicht verfügbar":
+        return f"stale {stale!r}, without data {none!r}, detail {hint!r}"
+
+
+@case("Entwarnung: ein erfolgreicher leerer Abruf nimmt die Warnung weg, auch im Screensaver")
+async def _warning_all_clear(run: Run):
+    item = warning_item("w", begins=NOW - timedelta(hours=1), ends=NOW + timedelta(hours=6))
+    await run.fresh(now=NOW, mutate=warnings([item], updated_at=iso(NOW)))
+    await run.start_screensaver()
+    before = await run.warning_line()
+    run.set_state(warnings([], updated_at=iso(NOW + timedelta(minutes=5))))
+    # The next slow poll is due at 5 min. Around it the clock moves in 1 s
+    # steps: a whole minute at once would run the 10 s request timeout out
+    # before the real response arrives.
+    await run.minutes(4)
+    await run.advance(90)
+    after = await run.warning_line()
+    if not before or after:
+        return f"{before!r} → {after!r}"
+
+
+@case("Warnhinweis: „Keine Warnungen“ nur nach erfolgreichem Abruf")
+async def _warning_hint_states(run: Run):
+    seen = []
+    for mutate in (warnings([], status="empty"), warnings([], status="ok", updated_at=iso(NOW)),
+                   warnings([], status="error")):
+        await run.fresh(now=NOW, mutate=mutate)
+        await run.to_weather()
+        seen.append(await run.text("#wx-warn-title"))
+    if seen != ["Warnungen werden geladen", "Keine Warnungen", "Warnungen derzeit nicht verfügbar"]:
+        return repr(seen)
+
+
+@case("Wetterscreen: vergangene Stunden fallen ohne neue Daten heraus")
+async def _hours_move_on(run: Run):
+    start = vienna(2026, 10, 25, 11, 0)
+    await run.fresh(now=NOW, mutate=hourly_series(start, 40, updated_at=iso(NOW)))
+    await run.to_weather()
+    first = await run.page.evaluate("() => document.querySelector('#wx-chart .wx-time').textContent")
+    await run.minutes(181)
+    later = await run.page.evaluate("() => document.querySelector('#wx-chart .wx-time').textContent")
+    if (first, later) != ("12:00", "15:00"):
+        return f"{first!r} → {later!r}"
+
+
+@case("Wetterscreen: der 25-Stunden-Tag der Umstellung hat richtige Zeitmarken")
+async def _dst_tomorrow(run: Run):
+    day_before = vienna(2026, 10, 24, 12, 0)
+    await run.fresh(now=day_before, mutate=hourly_series(day_before, 40, updated_at=iso(day_before)))
+    await run.to_weather()
+    await run.page.click('[data-wx-range="tomorrow"]')
+    labels = await run.page.evaluate(
+        "() => [...document.querySelectorAll('#wx-chart .wx-time')].map((n) => n.textContent)")
+    span = await run.page.evaluate("""() => {
+        const pts = document.querySelector('#wx-chart .wx-line').getAttribute('points').split(' ');
+        return [pts.length, parseFloat(pts[0]), parseFloat(pts[pts.length - 1])]; }""")
+    want = ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"]
+    if labels != want or span[0] != 26:
+        return f"labels {labels}, line {span}"
+
+
+@case("Wetterscreen: Modellhorizont wird genannt, nicht aufgefüllt")
+async def _horizon(run: Run):
+    await run.fresh(now=NOW, mutate=hourly_series(vienna(2026, 10, 25, 12, 0), 8, updated_at=iso(NOW)))
+    await run.to_weather()
+    text = await run.page.evaluate(
+        "() => (document.querySelector('#wx-chart .wx-horizon-text') || {}).textContent || ''")
+    if text != "Modell endet 19:00":
+        return repr(text)
+
+
+@case("Wetterscreen: Alter der Stundenwerte steht in der Quellenzeile")
+async def _hourly_age(run: Run):
+    stamp = iso(vienna(2026, 10, 24, 15, 10))
+    await run.fresh(now=NOW, mutate=hourly_series(vienna(2026, 10, 25, 12, 0), 30, status="stale",
+                                                   updated_at=stamp))
+    await run.to_weather()
+    source = await run.text("#wx-source")
+    behind = await run.page.evaluate("() => document.getElementById('wx-source').classList.contains('is-behind')")
+    if not source.startswith("Stunden: GeoSphere C-LAEF · Lauf 06:00 · Stand gestern 15:10") or not behind:
+        return f"{source!r}, behind={behind}"
+
+
+@case("Regen: „Kein Niederschlag erwartet“ nur bei vollständigen gültigen Werten")
+async def _rain_dry(run: Run):
+    start = vienna(2026, 10, 25, 11, 45)
+    seen = []
+    for mutate in (nowcast(start, [0.0] * 12), nowcast(start, [0.0] * 5 + [None] + [0.0] * 6),
+                   nowcast(start, [0.0] * 12, status="stale"), nowcast(start, [0.0] * 4)):
+        await run.fresh(now=NOW, mutate=mutate)
+        await run.to_weather()
+        await run.page.click('[data-wx-mode="rain"]')
+        seen.append(await run.page.evaluate(
+            "() => (document.querySelector('#wx-chart .wx-summary') || {}).textContent || ''"))
+    if seen[0] != "Kein Niederschlag erwartet" or any(s == "Kein Niederschlag erwartet" for s in seen[1:]):
+        return repr(seen)
 
 
 # ---- #19: what an empty agenda says ----------------------------------------------------

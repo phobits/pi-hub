@@ -42,6 +42,10 @@ class WeatherConfig:
     longitude: float
     api_key: str | None
     timeout_seconds: int
+    # Weather detail screen (#22). Both GeoSphere sources need nothing but the
+    # coordinates above; switching them off leaves the screen on Open-Meteo.
+    geosphere_enabled: bool = True
+    warnings_enabled: bool = True
 
 
 @dataclass(slots=True)
@@ -85,6 +89,11 @@ class RefreshIntervalsConfig:
     calendar_seconds: int
     spotify_seconds: int
     lightroom_seconds: int
+    # #22: C-LAEF computes a run every 3 h and publishes it hours later, so an
+    # hourly look finds a new run within the hour. INCA runs every 15 min.
+    weather_hourly_seconds: int = 3600
+    weather_nowcast_seconds: int = 900
+    weather_warnings_seconds: int = 300
 
 
 @dataclass(slots=True)
@@ -189,6 +198,12 @@ def load_config_from_mapping(
             longitude=float(mapping.get("weather", {}).get("longitude", 16.3738)),
             api_key=_normalize_optional_str(mapping.get("weather", {}).get("api_key")),
             timeout_seconds=int(mapping.get("weather", {}).get("timeout_seconds", 10)),
+            geosphere_enabled=parse_bool(
+                mapping.get("weather", {}).get("geosphere_enabled", True)
+            ),
+            warnings_enabled=parse_bool(
+                mapping.get("weather", {}).get("warnings_enabled", True)
+            ),
         ),
         calendar=CalendarConfig(
             enabled=parse_bool(mapping.get("calendar", {}).get("enabled", False)),
@@ -248,6 +263,15 @@ def load_config_from_mapping(
             ),
             lightroom_seconds=int(
                 mapping.get("refresh_intervals", {}).get("lightroom_seconds", 1800)
+            ),
+            weather_hourly_seconds=int(
+                mapping.get("refresh_intervals", {}).get("weather_hourly_seconds", 3600)
+            ),
+            weather_nowcast_seconds=int(
+                mapping.get("refresh_intervals", {}).get("weather_nowcast_seconds", 900)
+            ),
+            weather_warnings_seconds=int(
+                mapping.get("refresh_intervals", {}).get("weather_warnings_seconds", 300)
             ),
         ),
     )
@@ -325,6 +349,8 @@ def _apply_env_overrides(config: dict[str, Any], env: dict[str, str]) -> None:
         "WEATHER_LONGITUDE": ("weather", "longitude"),
         "WEATHER_API_KEY": ("weather", "api_key"),
         "WEATHER_TIMEOUT_SECONDS": ("weather", "timeout_seconds"),
+        "WEATHER_GEOSPHERE_ENABLED": ("weather", "geosphere_enabled"),
+        "WEATHER_WARNINGS_ENABLED": ("weather", "warnings_enabled"),
         "CALENDAR_ENABLED": ("calendar", "enabled"),
         "CALENDAR_URL": ("calendar", "url"),
         "CALENDAR_USERNAME": ("calendar", "username"),
@@ -361,6 +387,9 @@ def _apply_env_overrides(config: dict[str, Any], env: dict[str, str]) -> None:
         "REFRESH_CALENDAR_SECONDS": ("refresh_intervals", "calendar_seconds"),
         "REFRESH_SPOTIFY_SECONDS": ("refresh_intervals", "spotify_seconds"),
         "REFRESH_LIGHTROOM_SECONDS": ("refresh_intervals", "lightroom_seconds"),
+        "REFRESH_WEATHER_HOURLY_SECONDS": ("refresh_intervals", "weather_hourly_seconds"),
+        "REFRESH_WEATHER_NOWCAST_SECONDS": ("refresh_intervals", "weather_nowcast_seconds"),
+        "REFRESH_WEATHER_WARNINGS_SECONDS": ("refresh_intervals", "weather_warnings_seconds"),
     }
 
     for env_key, path in mapping.items():

@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from smart_display.app import _build_scheduled_jobs, _seed_unscheduled_provider_state
+from smart_display.state_store import DETAIL_SECTIONS
 from tests._support import make_app_config
 
 
@@ -23,6 +24,7 @@ def _job_names(config) -> list[str]:
             spotify_refresh=_noop,
             screensaver_refresh=_noop,
             mock_refresh=_noop,
+            detail_refresh=dict.fromkeys(DETAIL_SECTIONS, _noop),
         )
     ]
 
@@ -42,7 +44,11 @@ class SchedulerPlanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             config = make_app_config(Path(temp_dir), weather_enabled=True)
 
-            self.assertEqual(_job_names(config), ["weather"])
+            # #22: the detail sources follow the weather switch.
+            self.assertEqual(
+                _job_names(config),
+                ["weather", "weather_warnings", "weather_hourly_geosphere", "weather_nowcast"],
+            )
 
     def test_calendar_requires_complete_credentials(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

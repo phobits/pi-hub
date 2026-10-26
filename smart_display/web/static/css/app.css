@@ -37,6 +37,13 @@
      plain Inter otherwise — same metrics family, slightly wider glyphs. */
   --font: "Inter", "Noto Sans Display", "Noto Sans", sans-serif;
   --font-display: "Inter Display", "Inter", "Noto Sans Display", sans-serif;
+  /* #22: official warning levels (GeoSphere: yellow, orange, red) and the
+     precipitation colour of the weather screen. */
+  --warn-1: #f2cf4a;
+  --warn-2: #f3973a;
+  --warn-3: #f0564f;
+  --rain: rgba(110, 168, 255, 0.78);
+  --temp-line: #f3c46b;
 }
 
 /* Ticket #2 — night palette. Colours only, nothing moves. */
@@ -58,6 +65,11 @@ body[data-night="true"] {
   --flip-shadow: none;
   --art-fallback: linear-gradient(145deg, #262c34, #0f1217);
   --glow: none;
+  --warn-1: #a8933f;
+  --warn-2: #a96d33;
+  --warn-3: #a64540;
+  --rain: rgba(92, 128, 180, 0.7);
+  --temp-line: #b89654;
 }
 
 * {
@@ -119,7 +131,7 @@ h3 {
 }
 
 /* =============================================================================
-   Two-screen shell
+   Screen shell: home · Spotify · weather (#22), side by side in that order
    ========================================================================== */
 .screen-stage {
   position: relative;
@@ -155,6 +167,15 @@ h3 {
 
 .display-screen--spotify {
   transform: translateX(28px);
+}
+
+.display-screen--weather {
+  transform: translateX(28px);
+}
+
+/* With the weather screen in front, Spotify lies to its left. */
+.screen-stage[data-active-screen="weather"] .display-screen--spotify {
+  transform: translateX(-28px);
 }
 
 .display-screen.is-active {
@@ -2277,6 +2298,61 @@ body[data-night="true"] .picker__sheet {
   opacity: 0.7;
 }
 
+/* Local official warning (#22): its own line, never inside the clock's box.
+   Top left over the photos, top centre at night and without photos. */
+.screensaver__warning {
+  position: absolute;
+  left: 32px;
+  top: 28px;
+  max-width: 760px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 600;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.screensaver__warning-mark {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink-2);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.35);
+}
+
+.screensaver__warning[data-level="1"] .screensaver__warning-mark { background: var(--warn-1); }
+.screensaver__warning[data-level="2"] .screensaver__warning-mark { background: var(--warn-2); }
+.screensaver__warning[data-level="3"] .screensaver__warning-mark { background: var(--warn-3); }
+
+.screensaver__warning-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screensaver--night .screensaver__warning,
+.screensaver--fallback .screensaver__warning {
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 900px;
+}
+
+.screensaver--night .screensaver__warning {
+  top: 40px;
+  color: rgba(170, 178, 187, 0.7);
+  font-size: 24px;
+  text-shadow: none;
+}
+
+.screensaver--night .screensaver__warning-mark {
+  box-shadow: none;
+}
+
 /* =============================================================================
    Reduced motion
    ========================================================================== */
@@ -2301,4 +2377,634 @@ body[data-night="true"] .picker__sheet {
     animation: none;
     opacity: 0.7;
   }
+}
+
+/* =============================================================================
+   Screen 3 — weather detail (#22)
+   Rows: now 112 · controls 48 · chart 236 · source 18 · week 92, 10 px gaps,
+   22/28 px padding = 596 px. The bottom 28 px stay free for the sheet handle.
+   ========================================================================== */
+.wx {
+  display: grid;
+  grid-template-rows: 112px 48px 236px 18px 92px;
+  row-gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 22px 28px 28px;
+}
+
+.wx__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 20px;
+  align-items: start;
+  min-width: 0;
+}
+
+.wx__now {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  height: 112px;
+}
+
+.wx__temp {
+  font-family: var(--font-display);
+  font-size: 84px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.wx__icon {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  color: var(--ink-2);
+}
+
+.wx__icon svg,
+.wx-day__icon svg,
+.wx-week__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.wx__now-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.wx__condition {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wx__line {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wx__line--meta {
+  font-size: 15px;
+  color: var(--ink-3);
+}
+
+.wx__line--meta.is-behind {
+  color: var(--amber);
+}
+
+/* Warning hint: a button only when there is something to open. */
+.wx-warn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 360px;
+  min-height: 64px;
+  margin-top: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: default;
+}
+
+.wx-warn:disabled {
+  opacity: 1;
+}
+
+.wx-warn[data-state="active"] {
+  cursor: pointer;
+  background: var(--surface-2);
+}
+
+.wx-warn[data-state="active"]:active {
+  background: var(--surface-3);
+}
+
+.wx-warn[data-level="1"] { border-color: var(--warn-1); }
+.wx-warn[data-level="2"] { border-color: var(--warn-2); }
+.wx-warn[data-level="3"] { border-color: var(--warn-3); }
+
+.wx-warn__mark {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.wx-warn[data-state="clear"] .wx-warn__mark { background: rgba(140, 200, 150, 0.7); }
+.wx-warn[data-state="unavailable"] .wx-warn__mark { background: var(--amber); }
+.wx-warn[data-level="1"] .wx-warn__mark { background: var(--warn-1); }
+.wx-warn[data-level="2"] .wx-warn__mark { background: var(--warn-2); }
+.wx-warn[data-level="3"] .wx-warn__mark { background: var(--warn-3); }
+
+.wx-warn__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wx-warn__title {
+  font-size: 18px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wx-warn:not([data-state="active"]) .wx-warn__title {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.wx-warn__sub {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wx-warn__more {
+  flex: 0 0 auto;
+  min-width: 40px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 32px;
+  text-align: center;
+}
+
+.wx__controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.wx__controls-note {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.segmented {
+  display: inline-flex;
+  height: 48px;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.segmented__item {
+  appearance: none;
+  border: 0;
+  min-width: 96px;
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 17px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.segmented__item.is-selected {
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.wx__chart {
+  position: relative;
+  width: 968px;
+  height: 236px;
+  color: var(--ink-2);
+}
+
+.wx-chart {
+  display: block;
+  overflow: visible;
+}
+
+.wx-grid {
+  stroke: var(--hair);
+  stroke-width: 1;
+}
+
+.wx-tick {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+
+.wx-axis {
+  fill: var(--ink-3);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.wx-axis--rain {
+  fill: var(--rain);
+}
+
+.wx-axis--unit {
+  font-size: 12px;
+}
+
+.wx-time {
+  fill: var(--ink-2);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.wx-value {
+  fill: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  /* A halo keeps a label readable where it crosses a bar or the line. */
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.wx-line {
+  fill: none;
+  stroke: var(--temp-line);
+  stroke-width: 3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.wx-dot {
+  fill: var(--temp-line);
+}
+
+.wx-bar {
+  fill: var(--rain);
+}
+
+.wx-bar-zero {
+  fill: var(--surface-3);
+}
+
+.wx-bar-missing {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.wx-wind {
+  fill: var(--ink-2);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.wx-gust {
+  fill: var(--ink-3);
+}
+
+.wx-arrow {
+  fill: var(--ink-2);
+}
+
+.wx-horizon {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+}
+
+.wx-horizon-text,
+.wx-note {
+  fill: var(--ink-3);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.wx-summary {
+  fill: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.wx-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  text-align: center;
+}
+
+.wx-message__title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.wx-message__sub {
+  max-width: 640px;
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.wx-day {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  height: 100%;
+  padding: 20px 32px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.wx-day__icon {
+  flex: 0 0 auto;
+  width: 104px;
+  height: 104px;
+  color: var(--ink-2);
+}
+
+.wx-day__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.wx-day__title {
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.wx-day__condition {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.wx-day__facts {
+  font-size: 18px;
+  font-weight: 400;
+}
+
+.wx-day__sun {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.wx-day__hint {
+  margin-top: 8px;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.wx__source {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wx__source.is-behind {
+  color: var(--amber);
+}
+
+.wx__week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wx__week > .wx-message {
+  grid-column: 1 / -1;
+}
+
+.wx-week__day {
+  appearance: none;
+  display: grid;
+  grid-template-rows: 20px 32px 22px 16px;
+  justify-items: center;
+  align-content: center;
+  row-gap: 2px;
+  min-width: 0;
+  height: 92px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.wx-week__day:active {
+  background: var(--surface-3);
+}
+
+.wx-week__day.is-selected {
+  background: var(--surface-2);
+  border-color: var(--amber-line);
+}
+
+.wx-week__name {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.wx-week__icon {
+  width: 30px;
+  height: 30px;
+  color: var(--ink-2);
+}
+
+.wx-week__temps {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.wx-week__min {
+  margin-left: 6px;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.wx-week__rain {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--rain);
+}
+
+/* Warning details: a bounded overlay whose body scrolls. A sibling of the
+   stage, so neither the scroll nor the close tap can page. */
+.warn-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: none;
+}
+
+.warn-sheet.is-open {
+  display: block;
+}
+
+.warn-sheet__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+}
+
+.warn-sheet__panel {
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 112px;
+  right: 112px;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 22px 14px;
+  border-radius: var(--r-lg);
+  background: #0e1115;
+  border: 1px solid var(--hair);
+}
+
+.warn-sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.warn-sheet__title {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.warn-sheet__place {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.warn-sheet__close {
+  appearance: none;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.warn-sheet__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.warn-card {
+  padding: 14px 18px 16px;
+  border-left: 6px solid var(--ink-3);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.warn-card + .warn-card {
+  margin-top: 12px;
+}
+
+.warn-card[data-level="1"] { border-left-color: var(--warn-1); }
+.warn-card[data-level="2"] { border-left-color: var(--warn-2); }
+.warn-card[data-level="3"] { border-left-color: var(--warn-3); }
+
+.warn-card__title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.warn-card__period {
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.warn-card__block {
+  margin-top: 10px;
+}
+
+.warn-card__block h4 {
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.warn-card__block p {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: pre-line;
+}
+
+.warn-sheet__footer {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.warn-sheet__footer.is-behind {
+  color: var(--amber);
 }

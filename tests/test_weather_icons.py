@@ -159,21 +159,9 @@ class OpenMeteoHttpClientRefreshTest(unittest.TestCase):
         self.http = FakeHttpClient()
 
     def _build_url(self) -> str:
-        # The provider URL-encodes params in a deterministic order —
-        # re-build the same URL here so we can pre-seed a response.
-        from urllib.parse import urlencode
-
-        params = urlencode(
-            {
-                "latitude": self.config.weather.latitude,
-                "longitude": self.config.weather.longitude,
-                "current": "temperature_2m,apparent_temperature,weather_code",
-                "daily": "weather_code,temperature_2m_max,temperature_2m_min",
-                "timezone": self.config.app.timezone,
-                "forecast_days": 3,
-            }
-        )
-        return f"https://api.open-meteo.com/v1/forecast?{params}"
+        # One source of truth for the query (#22 widened it); the request
+        # contract itself is pinned in tests/test_weather_detail_sources.py.
+        return OpenMeteoProvider(self.config, self.store).request_url()
 
     def test_successful_refresh_writes_state(self) -> None:
         self.http.add_response(

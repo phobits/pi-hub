@@ -19,7 +19,9 @@
     "latitude": 48.2082,
     "longitude": 16.3738,
     "api_key": null,
-    "timeout_seconds": 10
+    "timeout_seconds": 10,
+    "geosphere_enabled": true,
+    "warnings_enabled": true
   },
   "calendar": {
     "enabled": false,
@@ -54,7 +56,9 @@
     "weather_seconds": 900,
     "calendar_seconds": 300,
     "spotify_seconds": 30,
-    "lightroom_seconds": 1800
+    "lightroom_seconds": 1800,
+    "weather_hourly_seconds": 3600,
+    "weather_nowcast_seconds": 900,
+    "weather_warnings_seconds": 300
   }
 }
-

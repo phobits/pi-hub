@@ -240,6 +240,52 @@
         </section>
       </div>
 
+      <!-- #22: screen 3, weather detail. Reached only by swiping on from
+           Spotify — no button on the home screen leads here. Every block has a
+           fixed height so no state (warning, missing source, far day) moves
+           another. -->
+      <div class="display-screen display-screen--weather" id="screen-weather" aria-hidden="true">
+        <section class="wx" id="weather-detail" aria-label="Wetterdetails">
+          <header class="wx__top">
+            <div class="wx__now">
+              <div class="wx__temp" id="wx-temp">–</div>
+              <div class="wx__icon" id="wx-icon" aria-hidden="true"></div>
+              <div class="wx__now-copy">
+                <h1 class="wx__condition" id="wx-condition">Wetterdaten werden geladen.</h1>
+                <div class="wx__line" id="wx-facts"></div>
+                <div class="wx__line" id="wx-wind"></div>
+                <div class="wx__line wx__line--meta" id="wx-meta"></div>
+              </div>
+            </div>
+            <button type="button" class="wx-warn" id="wx-warn" data-state="loading" aria-label="Amtliche Warnungen">
+              <span class="wx-warn__mark" id="wx-warn-mark" aria-hidden="true"></span>
+              <span class="wx-warn__copy">
+                <span class="wx-warn__title" id="wx-warn-title">Warnungen werden geladen</span>
+                <span class="wx-warn__sub" id="wx-warn-sub"></span>
+              </span>
+              <span class="wx-warn__more is-hidden" id="wx-warn-more"></span>
+            </button>
+          </header>
+
+          <div class="wx__controls">
+            <div class="segmented" id="wx-mode" role="group" aria-label="Ansicht">
+              <button type="button" class="segmented__item is-selected" data-wx-mode="hours">Stunden</button>
+              <button type="button" class="segmented__item" data-wx-mode="rain">Regen</button>
+            </div>
+            <div class="segmented" id="wx-range" role="group" aria-label="Zeitraum">
+              <button type="button" class="segmented__item is-selected" data-wx-range="next24">24 Std</button>
+              <button type="button" class="segmented__item" data-wx-range="today">Heute</button>
+              <button type="button" class="segmented__item" data-wx-range="tomorrow">Morgen</button>
+            </div>
+            <div class="wx__controls-note is-hidden" id="wx-rain-note">Nächste 3 Stunden · Niederschlag je 15 Minuten</div>
+          </div>
+
+          <div class="wx__chart" id="wx-chart"></div>
+          <div class="wx__source" id="wx-source"></div>
+          <div class="wx__week" id="wx-week" role="group" aria-label="Sieben Tage"></div>
+        </section>
+      </div>
+
     </div>
 
     <!-- Ticket #2/#3: quick sheet. Swipe up from anywhere or tap the grip. -->
@@ -342,10 +388,34 @@
       </div>
     </div>
 
+    <!-- #22: warning details. A sibling of .screen-stage like the picker, so
+         its scrolling and its close tap never reach the page swipe. -->
+    <div class="warn-sheet" id="warn-sheet" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Amtliche Warnungen">
+      <div class="warn-sheet__backdrop" id="warn-sheet-backdrop"></div>
+      <div class="warn-sheet__panel" role="document">
+        <header class="warn-sheet__header">
+          <div class="warn-sheet__heading">
+            <h2 class="warn-sheet__title">Amtliche Warnungen</h2>
+            <div class="warn-sheet__place" id="warn-sheet-place"></div>
+          </div>
+          <button type="button" class="warn-sheet__close" id="warn-sheet-close" aria-label="Schließen"><span aria-hidden="true">×</span></button>
+        </header>
+        <div class="warn-sheet__body" id="warn-sheet-body"></div>
+        <footer class="warn-sheet__footer" id="warn-sheet-footer"></footer>
+      </div>
+    </div>
+
     <aside class="screensaver" id="screensaver" aria-hidden="true">
       <img class="screensaver__image screensaver__image--a is-active" id="screensaver-image-a" alt="">
       <img class="screensaver__image screensaver__image--b" id="screensaver-image-b" alt="">
       <div class="screensaver__overlay"></div>
+      <!-- #22: local official warnings, only when there is one. Outside
+           .screensaver__info on purpose: that box is the clock's wake area,
+           and this line must not become something to tap. -->
+      <div class="screensaver__warning is-hidden" id="screensaver-warning">
+        <span class="screensaver__warning-mark" id="screensaver-warning-mark" aria-hidden="true"></span>
+        <span class="screensaver__warning-text" id="screensaver-warning-text"></span>
+      </div>
       <!-- Ticket #2: clock + date + weather over the photos (Nest-style), and
            the dim centred clock in night mode. One text node per minute. -->
       <div class="screensaver__info" id="screensaver-info">

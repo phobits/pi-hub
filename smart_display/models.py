@@ -46,6 +46,32 @@ class ProviderSnapshot:
         )
 
 
+def _opt_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _opt_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _opt_str(value: Any) -> str | None:
+    return None if value is None else str(value)
+
+
+# One day of the Open-Meteo overview. The first three feed the home screen as
+# before (day_label, condition_code, max/min); the rest is the detail screen's
+# week bar (#22). ``icon`` is the shared display key (weather_codes.py), the
+# day variant by design — a day symbol is not a night-time snapshot.
 @dataclass(slots=True)
 class WeatherForecastItem:
     day_label: str
@@ -53,6 +79,12 @@ class WeatherForecastItem:
     condition_code: int | None = None
     temperature_max_c: float | None = None
     temperature_min_c: float | None = None
+    date: str = ""
+    icon: str = ""
+    precipitation_probability_max: int | None = None
+    precipitation_sum_mm: float | None = None
+    sunrise: str | None = None
+    sunset: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +93,12 @@ class WeatherForecastItem:
             "condition_code": self.condition_code,
             "temperature_max_c": self.temperature_max_c,
             "temperature_min_c": self.temperature_min_c,
+            "date": self.date,
+            "icon": self.icon,
+            "precipitation_probability_max": self.precipitation_probability_max,
+            "precipitation_sum_mm": self.precipitation_sum_mm,
+            "sunrise": self.sunrise,
+            "sunset": self.sunset,
         }
 
     @classmethod
@@ -75,6 +113,12 @@ class WeatherForecastItem:
             ),
             temperature_max_c=data.get("temperature_max_c"),
             temperature_min_c=data.get("temperature_min_c"),
+            date=str(data.get("date", "") or ""),
+            icon=str(data.get("icon", "") or ""),
+            precipitation_probability_max=_opt_int(data.get("precipitation_probability_max")),
+            precipitation_sum_mm=_opt_float(data.get("precipitation_sum_mm")),
+            sunrise=_opt_str(data.get("sunrise")),
+            sunset=_opt_str(data.get("sunset")),
         )
 
 
@@ -87,6 +131,14 @@ class WeatherState:
     condition: str = ""
     condition_code: int | None = None
     forecast: list[WeatherForecastItem] = field(default_factory=list)
+    # #22, additive: the detail screen's "now" block. Open-Meteo's current
+    # values are 15-minute model data, not a station reading — ``observed_at``
+    # is the model time they are valid for (UTC ISO).
+    observed_at: str | None = None
+    icon: str = ""
+    wind_speed_kmh: float | None = None
+    wind_direction_deg: float | None = None
+    wind_gusts_kmh: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -97,6 +149,11 @@ class WeatherState:
             "condition": self.condition,
             "condition_code": self.condition_code,
             "forecast": [item.to_dict() for item in self.forecast],
+            "observed_at": self.observed_at,
+            "icon": self.icon,
+            "wind_speed_kmh": self.wind_speed_kmh,
+            "wind_direction_deg": self.wind_direction_deg,
+            "wind_gusts_kmh": self.wind_gusts_kmh,
         }
 
     @classmethod
@@ -116,6 +173,229 @@ class WeatherState:
             forecast=[
                 WeatherForecastItem.from_dict(item)
                 for item in data.get("forecast", []) or []
+            ],
+            observed_at=_opt_str(data.get("observed_at")),
+            icon=str(data.get("icon", "") or ""),
+            wind_speed_kmh=_opt_float(data.get("wind_speed_kmh")),
+            wind_direction_deg=_opt_float(data.get("wind_direction_deg")),
+            wind_gusts_kmh=_opt_float(data.get("wind_gusts_kmh")),
+        )
+
+
+# ---- Weather detail (#22) ----------------------------------------------------
+# Every series below is its own section with its own snapshot, so one failing
+# source degrades only its own part of the screen. Missing values stay None —
+# never 0 mm, 0 %, 0 °C or calm. Times are UTC ISO strings.
+
+
+# One hour of a forecast series. ``time`` is the end of the hour: temperature
+# and wind speed are the value at that instant, precipitation and gusts belong
+# to the hour before it (both sources document it that way).
+@dataclass(slots=True)
+class HourlyPoint:
+    time: str
+    temperature_c: float | None = None
+    precipitation_mm: float | None = None
+    precipitation_probability: int | None = None
+    wind_speed_kmh: float | None = None
+    wind_direction_deg: float | None = None
+    wind_gusts_kmh: float | None = None
+    icon: str = "unknown"
+    condition: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "time": self.time,
+            "temperature_c": self.temperature_c,
+            "precipitation_mm": self.precipitation_mm,
+            "precipitation_probability": self.precipitation_probability,
+            "wind_speed_kmh": self.wind_speed_kmh,
+            "wind_direction_deg": self.wind_direction_deg,
+            "wind_gusts_kmh": self.wind_gusts_kmh,
+            "icon": self.icon,
+            "condition": self.condition,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "HourlyPoint":
+        return cls(
+            time=str(data.get("time", "")),
+            temperature_c=_opt_float(data.get("temperature_c")),
+            precipitation_mm=_opt_float(data.get("precipitation_mm")),
+            precipitation_probability=_opt_int(data.get("precipitation_probability")),
+            wind_speed_kmh=_opt_float(data.get("wind_speed_kmh")),
+            wind_direction_deg=_opt_float(data.get("wind_direction_deg")),
+            wind_gusts_kmh=_opt_float(data.get("wind_gusts_kmh")),
+            icon=str(data.get("icon", "unknown") or "unknown"),
+            condition=str(data.get("condition", "") or ""),
+        )
+
+
+# A whole hourly series from one model. ``model_run`` is the model start
+# (C-LAEF reference time; None for Open-Meteo, which does not expose one),
+# ``valid_to`` the last hour the source delivered.
+@dataclass(slots=True)
+class HourlyForecastState:
+    snapshot: ProviderSnapshot = field(default_factory=ProviderSnapshot)
+    model_run: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    points: list[HourlyPoint] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "snapshot": self.snapshot.to_dict(),
+            "model_run": self.model_run,
+            "valid_from": self.valid_from,
+            "valid_to": self.valid_to,
+            "points": [point.to_dict() for point in self.points],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "HourlyForecastState":
+        data = data or {}
+        return cls(
+            snapshot=ProviderSnapshot.from_dict(data.get("snapshot")),
+            model_run=_opt_str(data.get("model_run")),
+            valid_from=_opt_str(data.get("valid_from")),
+            valid_to=_opt_str(data.get("valid_to")),
+            points=[
+                HourlyPoint.from_dict(item)
+                for item in data.get("points", []) or []
+                if isinstance(item, dict)
+            ],
+        )
+
+
+# One INCA interval: the precipitation that falls in the 15 minutes ending at
+# ``ends_at``.
+@dataclass(slots=True)
+class NowcastPoint:
+    ends_at: str
+    precipitation_mm: float | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"ends_at": self.ends_at, "precipitation_mm": self.precipitation_mm}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "NowcastPoint":
+        return cls(
+            ends_at=str(data.get("ends_at", "")),
+            precipitation_mm=_opt_float(data.get("precipitation_mm")),
+        )
+
+
+@dataclass(slots=True)
+class NowcastState:
+    snapshot: ProviderSnapshot = field(default_factory=ProviderSnapshot)
+    model_run: str | None = None
+    interval_minutes: int = 15
+    points: list[NowcastPoint] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "snapshot": self.snapshot.to_dict(),
+            "model_run": self.model_run,
+            "interval_minutes": self.interval_minutes,
+            "points": [point.to_dict() for point in self.points],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "NowcastState":
+        data = data or {}
+        return cls(
+            snapshot=ProviderSnapshot.from_dict(data.get("snapshot")),
+            model_run=_opt_str(data.get("model_run")),
+            interval_minutes=_opt_int(data.get("interval_minutes")) or 15,
+            points=[
+                NowcastPoint.from_dict(item)
+                for item in data.get("points", []) or []
+                if isinstance(item, dict)
+            ],
+        )
+
+
+# An official GeoSphere warning for the configured municipality. ``ends_at``
+# is exclusive; None means the source gave no usable end (see
+# weather_detail.warning_effective_end for the bounded rule that applies then).
+@dataclass(slots=True)
+class WeatherWarning:
+    id: str
+    version: int | None = None
+    type: int | None = None
+    type_label: str = ""
+    level: int | None = None
+    level_label: str = ""
+    begins_at: str | None = None
+    ends_at: str | None = None
+    text: str = ""
+    impacts: str = ""
+    recommendations: str = ""
+    meteo_text: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "version": self.version,
+            "type": self.type,
+            "type_label": self.type_label,
+            "level": self.level,
+            "level_label": self.level_label,
+            "begins_at": self.begins_at,
+            "ends_at": self.ends_at,
+            "text": self.text,
+            "impacts": self.impacts,
+            "recommendations": self.recommendations,
+            "meteo_text": self.meteo_text,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "WeatherWarning":
+        return cls(
+            id=str(data.get("id", "")),
+            version=_opt_int(data.get("version")),
+            type=_opt_int(data.get("type")),
+            type_label=str(data.get("type_label", "") or ""),
+            level=_opt_int(data.get("level")),
+            level_label=str(data.get("level_label", "") or ""),
+            begins_at=_opt_str(data.get("begins_at")),
+            ends_at=_opt_str(data.get("ends_at")),
+            text=str(data.get("text", "") or ""),
+            impacts=str(data.get("impacts", "") or ""),
+            recommendations=str(data.get("recommendations", "") or ""),
+            meteo_text=str(data.get("meteo_text", "") or ""),
+        )
+
+
+# ``ok`` with no items is a confirmed all-clear — the only state that may say
+# "Keine Warnungen". The municipality is what the point query resolved; it is
+# kept so a changed answer is noticed and the screen can name the place.
+@dataclass(slots=True)
+class WarningsState:
+    snapshot: ProviderSnapshot = field(default_factory=ProviderSnapshot)
+    municipality_id: str | None = None
+    municipality_name: str = ""
+    items: list[WeatherWarning] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "snapshot": self.snapshot.to_dict(),
+            "municipality_id": self.municipality_id,
+            "municipality_name": self.municipality_name,
+            "items": [item.to_dict() for item in self.items],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "WarningsState":
+        data = data or {}
+        return cls(
+            snapshot=ProviderSnapshot.from_dict(data.get("snapshot")),
+            municipality_id=_opt_str(data.get("municipality_id")),
+            municipality_name=str(data.get("municipality_name", "") or ""),
+            items=[
+                WeatherWarning.from_dict(item)
+                for item in data.get("items", []) or []
+                if isinstance(item, dict)
             ],
         )
 
@@ -416,6 +696,29 @@ class DashboardState:
     # Additive (default []) so a last_good.json written before timers existed
     # still loads — no schema bump needed, see the note above the constant.
     timers: list[TimerState] = field(default_factory=list)
+    # #22, additive in the same way: the weather detail sources. Both hourly
+    # series are kept as last known good; /api/state sends only the one
+    # weather_detail.select_hourly picks.
+    weather_hourly_geosphere: HourlyForecastState = field(
+        default_factory=lambda: HourlyForecastState(
+            snapshot=ProviderSnapshot(status="empty", source="geosphere-claef")
+        )
+    )
+    weather_hourly_openmeteo: HourlyForecastState = field(
+        default_factory=lambda: HourlyForecastState(
+            snapshot=ProviderSnapshot(status="empty", source="open-meteo")
+        )
+    )
+    weather_nowcast: NowcastState = field(
+        default_factory=lambda: NowcastState(
+            snapshot=ProviderSnapshot(status="empty", source="geosphere-inca")
+        )
+    )
+    weather_warnings: WarningsState = field(
+        default_factory=lambda: WarningsState(
+            snapshot=ProviderSnapshot(status="empty", source="geosphere-warnings")
+        )
+    )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -425,6 +728,10 @@ class DashboardState:
             "spotify": self.spotify.to_dict(),
             "system": self.system.to_dict(),
             "timers": [timer.to_dict() for timer in self.timers],
+            "weather_hourly_geosphere": self.weather_hourly_geosphere.to_dict(),
+            "weather_hourly_openmeteo": self.weather_hourly_openmeteo.to_dict(),
+            "weather_nowcast": self.weather_nowcast.to_dict(),
+            "weather_warnings": self.weather_warnings.to_dict(),
         }
 
     @classmethod
@@ -452,4 +759,21 @@ class DashboardState:
                 for item in data.get("timers", []) or []
                 if isinstance(item, dict)
             ],
+            **_detail_sections(data),
         )
+
+
+def _detail_sections(data: dict[str, Any]) -> dict[str, Any]:
+    """#22: a cache from before the detail screen has none of these keys —
+    leave them to the dataclass defaults (``empty``) rather than build a
+    snapshot without a source."""
+    sections: dict[str, Any] = {}
+    for key, loader in (
+        ("weather_hourly_geosphere", HourlyForecastState.from_dict),
+        ("weather_hourly_openmeteo", HourlyForecastState.from_dict),
+        ("weather_nowcast", NowcastState.from_dict),
+        ("weather_warnings", WarningsState.from_dict),
+    ):
+        if isinstance(data.get(key), dict):
+            sections[key] = loader(data[key])
+    return sections

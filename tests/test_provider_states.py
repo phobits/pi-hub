@@ -419,18 +419,9 @@ TOKEN_URL = "https://accounts.spotify.com/api/token"
 
 def _any_url(http: FakeHttpClient) -> str:
     """The Open-Meteo URL the provider builds, without re-deriving its query."""
-    from urllib.parse import urlencode
-
-    return "https://api.open-meteo.com/v1/forecast?" + urlencode(
-        {
-            "latitude": 48.2082,
-            "longitude": 16.3738,
-            "current": "temperature_2m,apparent_temperature,weather_code",
-            "daily": "weather_code,temperature_2m_max,temperature_2m_min",
-            "timezone": "Europe/Vienna",
-            "forecast_days": 3,
-        }
-    )
+    with tempfile.TemporaryDirectory() as tmp:
+        config = make_app_config(Path(tmp), weather_enabled=True)
+        return OpenMeteoProvider(config, None).request_url()  # type: ignore[arg-type]
 
 
 class LegacyCacheRestartTest(_Fixture):

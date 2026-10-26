@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "smart-display"
-version = "0.12.2"
+version = "0.13.0"
 description = "Lightweight smart display for Raspberry Pi Zero 2 W"
 readme = "README.md"
 requires-python = ">=3.11"

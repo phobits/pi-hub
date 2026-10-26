@@ -14,6 +14,11 @@ from smart_display.providers.caldav_provider import CalDAVProvider
 from smart_display.providers.lightroom_source import LightroomSourceProvider
 from smart_display.providers.mock_provider import MockProvider
 from smart_display.providers.spotify_provider import SpotifyProvider
+from smart_display.providers.weather_geosphere import (
+    ClaefProvider,
+    IncaProvider,
+    WarningsProvider,
+)
 from smart_display.providers.weather_openmeteo import OpenMeteoProvider
 from smart_display.scheduler import ScheduledJob, Scheduler
 from smart_display.state_store import StateStore
@@ -49,6 +54,12 @@ def create_app(
     spotify_provider = SpotifyProvider(app_config, state_store)
     screensaver_provider = LightroomSourceProvider(app_config, state_store, image_cache)
     mock_provider = MockProvider(app_config, state_store)
+    # #22: the weather detail sources, keyed by their section (= job name).
+    detail_refresh = {
+        "weather_hourly_geosphere": ClaefProvider(app_config, state_store).refresh,
+        "weather_nowcast": IncaProvider(app_config, state_store).refresh,
+        "weather_warnings": WarningsProvider(app_config, state_store).refresh,
+    }
 
     app = Flask(
         __name__,
@@ -76,6 +87,7 @@ def create_app(
             screensaver_refresh=screensaver_provider.refresh,
             mock_refresh=mock_provider.refresh,
             retry_wait=state_store.retry_wait,
+            detail_refresh=detail_refresh,
         )
         _seed_unscheduled_provider_state(
             jobs,
@@ -83,6 +95,7 @@ def create_app(
             calendar_refresh=calendar_provider.refresh,
             spotify_refresh=spotify_provider.refresh,
             screensaver_refresh=screensaver_provider.refresh,
+            detail_refresh=detail_refresh,
         )
         scheduler.start(jobs)
         app.extensions["smart_display"]["scheduler"] = scheduler
@@ -103,6 +116,7 @@ def _build_scheduled_jobs(
     screensaver_refresh: Callable[[], None],
     mock_refresh: Callable[[], None],
     retry_wait: Callable[[str], float | None] | None = None,
+    detail_refresh: dict[str, Callable[[], None]] | None = None,
 ) -> list[ScheduledJob]:
     """Return only jobs that have useful periodic work on the Pi.
 
@@ -123,6 +137,23 @@ def _build_scheduled_jobs(
                 task=weather_refresh,
                 retry_after=_retry_for(retry_wait, "weather"),
                 startup_delay_seconds=0.0,
+                jitter_seconds=1.0,
+            )
+        )
+
+    # #22: none of these joins the "spotify" pause group — warnings in
+    # particular must keep arriving while the screensaver shows them.
+    for name, interval, delay in _detail_jobs(config):
+        refresh = (detail_refresh or {}).get(name)
+        if refresh is None:
+            continue
+        jobs.append(
+            ScheduledJob(
+                name=name,
+                interval_seconds=interval,
+                task=refresh,
+                retry_after=_retry_for(retry_wait, name),
+                startup_delay_seconds=delay,
                 jitter_seconds=1.0,
             )
         )
@@ -177,6 +208,20 @@ def _build_scheduled_jobs(
     return jobs
 
 
+def _detail_jobs(config: AppConfig) -> list[tuple[str, int, float]]:
+    """(section, interval, startup delay) of the enabled detail sources."""
+    if not config.weather.enabled:
+        return []
+    intervals = config.refresh_intervals
+    jobs: list[tuple[str, int, float]] = []
+    if config.weather.warnings_enabled:
+        jobs.append(("weather_warnings", intervals.weather_warnings_seconds, 3.0))
+    if config.weather.geosphere_enabled:
+        jobs.append(("weather_hourly_geosphere", intervals.weather_hourly_seconds, 8.0))
+        jobs.append(("weather_nowcast", intervals.weather_nowcast_seconds, 10.0))
+    return jobs
+
+
 def _retry_for(
     retry_wait: Callable[[str], float | None] | None, section: str
 ) -> Callable[[], float | None] | None:
@@ -212,6 +257,7 @@ def _seed_unscheduled_provider_state(
     calendar_refresh: Callable[[], None],
     spotify_refresh: Callable[[], None],
     screensaver_refresh: Callable[[], None],
+    detail_refresh: dict[str, Callable[[], None]] | None = None,
 ) -> None:
     scheduled = {job.name for job in jobs}
     for name, refresh in (
@@ -219,6 +265,7 @@ def _seed_unscheduled_provider_state(
         ("calendar", calendar_refresh),
         ("spotify", spotify_refresh),
         ("screensaver", screensaver_refresh),
+        *(detail_refresh or {}).items(),
     ):
         if name in scheduled:
             continue

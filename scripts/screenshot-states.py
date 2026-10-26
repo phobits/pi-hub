@@ -151,6 +151,145 @@ def timer_running(state: dict) -> dict:
     return state
 
 
+# ---- weather detail (#22) -----------------------------------------------------
+# Warnings are built relative to the real clock: the page compares their
+# ``visible_until`` with Date.now(), exactly as on the panel.
+
+LONG_IMPACTS = (
+    "* Äste können herabstürzen und Gegenstände herumgewirbelt werden.\n"
+    "* Erhöhte Unfallgefahr durch starken Seitenwind auf Brücken und exponierten "
+    "Straßenzügen, insbesondere für LKW oder bei Fahrten mit großen Anhängern.\n"
+    "* Vereinzelt sind Schäden an Dächern und Gerüsten möglich."
+)
+LONG_ADVICE = (
+    "* Seien Sie in Wäldern, Parks und Alleen achtsam, rechnen Sie mit herabstürzenden Ästen!\n"
+    "* Reduzieren Sie im Straßenverkehr auf Brücken und exponierten Straßenzügen die "
+    "Geschwindigkeit, vermeiden Sie Überholmanöver und halten Sie Abstand!\n"
+    "* Sichern Sie lose Gegenstände auf Balkonen und Terrassen."
+)
+LONG_METEO = (
+    "Mit einer nordwestlichen Strömung lebt im Ostalpenraum der Nordwestwind deutlich auf "
+    "und erreicht in den Niederungen Windspitzen zwischen 60 und 80 km/h. Im Bergland werden "
+    "zum Teil Sturmböen von über 100 km/h erreicht. Erst in der Nacht auf Mittwoch lässt der "
+    "Wind von Westen her allmählich nach."
+)
+
+
+def _iso_in(hours: float) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    moment = datetime.now(timezone.utc) + timedelta(hours=hours)
+    return moment.replace(second=0, microsecond=0).isoformat()
+
+
+def _warning(wid, level, wtype, begins_h, ends_h, *, long=False):
+    text = {1: "Wind", 2: "Regen", 3: "Schnee", 5: "Gewitter", 4: "Glatteis"}[wtype]
+    adjective = {1: "Gelbe", 2: "Orange", 3: "Rote"}[level]
+    return {
+        "id": wid,
+        "version": 1,
+        "type": wtype,
+        "type_label": text,
+        "level": level,
+        "level_label": {1: "Gelb", 2: "Orange", 3: "Rot"}[level],
+        "begins_at": _iso_in(begins_h),
+        "ends_at": _iso_in(ends_h),
+        "visible_until": _iso_in(ends_h),
+        "text": f"{adjective} {text}warnung für Wien-Innere Stadt.",
+        "impacts": LONG_IMPACTS if long else "* Äste können herabstürzen.",
+        "recommendations": LONG_ADVICE if long else "",
+        "meteo_text": LONG_METEO if long else "",
+    }
+
+
+def warn_one(state: dict) -> dict:
+    state["weather_warnings"]["items"] = [_warning("w1", 2, 1, -1, 5.5)]
+    return state
+
+
+def warn_many(state: dict) -> dict:
+    state["weather_warnings"]["items"] = [
+        _warning("w3", 3, 5, 2, 6, long=True),
+        _warning("w1", 2, 1, -1, 30, long=True),
+        _warning("w2", 1, 2, 20, 40, long=True),
+    ]
+    return state
+
+
+def warn_future(state: dict) -> dict:
+    state["weather_warnings"]["items"] = [_warning("w4", 1, 3, 9, 20)]
+    return state
+
+
+def warn_stale(state: dict) -> dict:
+    state = warn_one(state)
+    state["weather_warnings"]["snapshot"].update(
+        {"status": "stale", "updated_at": _iso_in(-2), "error_message": "HTTP 503"}
+    )
+    return state
+
+
+def detail_stale(state: dict) -> dict:
+    """Every detail source failed after good data: ages everywhere."""
+    for name in ("weather", "weather_hourly", "weather_nowcast", "weather_warnings"):
+        state[name]["snapshot"].update({"status": "stale", "updated_at": _iso_in(-2.5), "error_message": "timeout"})
+    return state
+
+
+def detail_empty(state: dict) -> dict:
+    """Never fetched — the first minutes after a cold boot."""
+    state = weather_empty(state)
+    state["weather"].update(
+        {"wind_speed_kmh": None, "wind_direction_deg": None, "wind_gusts_kmh": None,
+         "observed_at": None, "icon": ""}
+    )
+    state["weather"]["snapshot"]["updated_at"] = None
+    for name in ("weather_hourly", "weather_nowcast", "weather_warnings"):
+        state[name]["snapshot"].update({"status": "empty", "updated_at": None})
+        state[name]["points" if name != "weather_warnings" else "items"] = []
+        state[name]["model_run"] = None
+    return state
+
+
+def detail_failed(state: dict) -> dict:
+    """First fetch failed everywhere: no good data at all."""
+    state = detail_empty(state)
+    state["weather"]["snapshot"]["status"] = "error"
+    for name in ("weather_hourly", "weather_nowcast", "weather_warnings"):
+        state[name]["snapshot"]["status"] = "error"
+    return state
+
+
+def detail_partial(state: dict) -> dict:
+    """GeoSphere down: the hourly series is Open-Meteo's, INCA and the
+    warnings have nothing to show."""
+    hourly = state["weather_hourly"]
+    hourly["snapshot"]["source"] = "open-meteo"
+    hourly["fallback"] = True
+    hourly["model_run"] = None
+    for index, point in enumerate(hourly["points"]):
+        point["precipitation_probability"] = min(90, index * 3)
+    state["weather_nowcast"].update({"points": []})
+    state["weather_nowcast"]["snapshot"].update({"status": "error", "updated_at": None})
+    state["weather_warnings"].update({"items": []})
+    state["weather_warnings"]["snapshot"].update({"status": "error", "updated_at": None})
+    return state
+
+
+def nowcast_dry(state: dict) -> dict:
+    for point in state["weather_nowcast"]["points"]:
+        point["precipitation_mm"] = 0.0
+    return state
+
+
+def hourly_short(state: dict) -> dict:
+    """An old model run that ends ten hours from now."""
+    hourly = state["weather_hourly"]
+    hourly["points"] = hourly["points"][:10]
+    hourly["valid_to"] = hourly["points"][-1]["time"]
+    return state
+
+
 def compose(*mutators):
     def apply(state: dict) -> dict:
         for mutator in mutators:
@@ -192,6 +331,33 @@ SCENARIOS = [
     ("screensaver-photo", "flip", False, None, ["screensaver"]),
     ("screensaver-fallback", "flip", False, None, ["no-photos", "screensaver"]),
     ("screensaver-night", "flip", True, None, ["screensaver"]),
+    # #22: screen 3 and the screensaver warning line.
+    ("weather", "flip", False, None, ["weather"]),
+    ("weather-today", "flip", False, None, ["weather", "wx-today"]),
+    ("weather-tomorrow-rain", "flip", False, None, ["weather", "wx-tomorrow"]),
+    ("weather-far-day", "flip", False, None, ["weather", "wx-far"]),
+    ("weather-rain", "flip", False, None, ["weather", "wx-rain"]),
+    ("weather-rain-dry", "flip", False, nowcast_dry, ["weather", "wx-rain"]),
+    ("weather-horizon", "flip", False, hourly_short, ["weather"]),
+    ("weather-warning", "flip", False, warn_one, ["weather"]),
+    ("weather-warning-future", "flip", False, warn_future, ["weather"]),
+    ("weather-warnings-many", "flip", False, warn_many, ["weather"]),
+    ("weather-warning-sheet", "flip", False, warn_many, ["weather", "wx-warn"]),
+    ("weather-warning-sheet-scrolled", "flip", False, warn_many, ["weather", "wx-warn", "wx-scroll"]),
+    ("weather-stale", "flip", False, compose(detail_stale, warn_one), ["weather"]),
+    ("weather-stale-rain", "flip", False, detail_stale, ["weather", "wx-rain"]),
+    ("weather-empty", "flip", False, detail_empty, ["weather"]),
+    ("weather-first-fetch-failed", "flip", False, detail_failed, ["weather"]),
+    ("weather-first-fetch-failed-rain", "flip", False, detail_failed, ["weather", "wx-rain"]),
+    ("weather-partial", "flip", False, detail_partial, ["weather"]),
+    ("weather-partial-rain", "flip", False, detail_partial, ["weather", "wx-rain"]),
+    ("weather-night", "flip", True, warn_one, ["weather"]),
+    ("screensaver-photo-warning", "flip", False, warn_one, ["screensaver"]),
+    ("screensaver-photo-warnings-timer", "flip", False, compose(warn_many, timer_running), ["screensaver"]),
+    ("screensaver-photo-warning-stale", "flip", False, warn_stale, ["screensaver"]),
+    ("screensaver-night-warning", "flip", True, warn_many, ["screensaver"]),
+    ("screensaver-night-warning-timer", "flip", True, compose(warn_one, timer_running), ["screensaver"]),
+    ("screensaver-fallback-warning", "flip", False, warn_one, ["no-photos", "screensaver"]),
 ]
 
 
@@ -263,7 +429,28 @@ async def run(url: str, out: Path) -> None:
             await page.goto(url)
             await page.wait_for_timeout(1800)
             for action in actions:
-                if action == "spotify":
+                if action == "weather":
+                    # Two real swipes, home → Spotify → weather.
+                    for _ in range(2):
+                        await page.mouse.move(820, 300)
+                        await page.mouse.down()
+                        for step in range(1, 9):
+                            await page.mouse.move(820 - step * 60, 300)
+                        await page.mouse.up()
+                        await page.wait_for_timeout(350)
+                elif action == "wx-today":
+                    await page.click('[data-wx-range="today"]')
+                elif action == "wx-tomorrow":
+                    await page.click('[data-wx-range="tomorrow"]')
+                elif action == "wx-far":
+                    await page.click(".wx-week__day:nth-child(5)")
+                elif action == "wx-rain":
+                    await page.click('[data-wx-mode="rain"]')
+                elif action == "wx-warn":
+                    await page.click("#wx-warn")
+                elif action == "wx-scroll":
+                    await page.evaluate("document.getElementById('warn-sheet-body').scrollTop = 99999")
+                elif action == "spotify":
                     await page.click("#spotify-card")
                 elif action == "picker":
                     await page.click("#spotify-detail-open-picker")
