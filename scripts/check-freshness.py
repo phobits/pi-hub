@@ -219,10 +219,11 @@ class StateStub(ThreadingHTTPServer):
 
 class _StubHandler(BaseHTTPRequestHandler):
     # WebKit treats the rerouted request as cross-origin (another port) and
-    # preflights it for If-None-Match; app.js reads the ETag, so expose it.
+    # preflights it for If-None-Match and X-Kiosk-Frame (#23; same-origin on
+    # the device, so no preflight there); app.js reads the ETag, so expose it.
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "If-None-Match")
+        self.send_header("Access-Control-Allow-Headers", "If-None-Match, X-Kiosk-Frame")
         self.send_header("Access-Control-Expose-Headers", "ETag")
 
     def do_OPTIONS(self) -> None:  # noqa: N802

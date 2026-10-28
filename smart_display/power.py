@@ -22,6 +22,10 @@ SYSTEMCTL = "/usr/bin/systemctl"
 COMMANDS: dict[str, tuple[str, ...]] = {
     "shutdown": ("sudo", "-n", SYSTEMCTL, "poweroff"),
     "reboot": ("sudo", "-n", SYSTEMCTL, "reboot"),
+    # #23: the frozen-panel watchdog (kiosk_watchdog.py), never a request.
+    "kiosk_restart": (
+        "sudo", "-n", SYSTEMCTL, "restart", "--no-block", "smart-display-kiosk.service",
+    ),
 }
 NOT_ALLOWED_MESSAGE = "Ausschalten ist auf diesem Gerät nicht freigegeben."
 

@@ -9,6 +9,7 @@ from flask import Flask
 from smart_display import sd_notify
 from smart_display.cache.image_cache import ImageCache
 from smart_display.config import AppConfig, load_config
+from smart_display.kiosk_watchdog import KioskWatchdog, KioskWatchdogThread
 from smart_display.power import PowerController
 from smart_display.providers.caldav_provider import CalDAVProvider
 from smart_display.providers.lightroom_source import LightroomSourceProvider
@@ -41,6 +42,7 @@ def create_app(
     state_store = StateStore(app_config)
     timer_service = TimerService(state_store)
     power_controller = PowerController(allowed=app_config.app.allow_shutdown)
+    kiosk_watchdog = KioskWatchdog(state_path=app_config.app.data_dir / "kiosk-watchdog.json")
     image_cache = ImageCache(
         cache_dir=app_config.screensaver_cache_dir,
         manifest_path=app_config.screensaver_manifest_path,
@@ -74,6 +76,7 @@ def create_app(
         "spotify_provider": spotify_provider,
         "timer_service": timer_service,
         "power_controller": power_controller,
+        "kiosk_watchdog": kiosk_watchdog,
     }
     app.register_blueprint(create_blueprint())
 
@@ -331,6 +334,13 @@ def serve_app(app: Flask) -> None:
         pinger.start()
         app.extensions["smart_display"]["watchdog"] = pinger
         logger.info("systemd watchdog active, pinging every %.0f s", interval)
+
+    # #23: only where the sudo rule exists — the same gate as the power
+    # buttons, so the demo server never restarts anything.
+    if config.app.allow_shutdown:
+        kiosk_thread = KioskWatchdogThread(app.extensions["smart_display"]["kiosk_watchdog"])
+        kiosk_thread.start()
+        logger.info("kiosk watchdog active")
 
     server.run()
 

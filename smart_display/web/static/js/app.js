@@ -46,6 +46,12 @@
   const LOCAL_STALE_POLLS = 3;
   const LOCAL_STALE_MIN_MS = 30_000;
   const LOCAL_STALE_AFTER_MS = Math.max(LOCAL_STALE_POLLS * POLL_INTERVAL_MS, LOCAL_STALE_MIN_MS);
+  // #23: a scheduled poll first waits for one rendered frame and says so in
+  // FRAME_HEADER; the backend's kiosk watchdog restarts the kiosk (then the
+  // Pi) when no such poll arrives. A hung compositor delivers no frame, so the
+  // poll goes out unmarked after FRAME_WAIT_MS — data keeps flowing either way.
+  const FRAME_HEADER = "X-Kiosk-Frame";
+  const FRAME_WAIT_MS = 2000;
   let stateRequest = null;
   // Start of the current outage window: the last good poll, or the moment
   // polling resumed after the screensaver. The page itself arrived with state.
@@ -2849,13 +2855,14 @@
     return stateRequest;
   }
 
-  async function requestState({ quiet = false } = {}) {
+  async function requestState({ quiet = false, framed = false } = {}) {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), STATE_REQUEST_TIMEOUT_MS);
     let payload = null;
     let nextEtag = "";
     try {
       const headers = stateEtag ? { "If-None-Match": stateEtag } : {};
+      if (framed) headers[FRAME_HEADER] = "1";
       const response = await fetch("/api/state", {
         cache: "no-store",
         headers,
@@ -2902,16 +2909,34 @@
   const SCREENSAVER_POLL_MS = 5 * 60 * 1000;
   let lastScreensaverPollAt = 0;
 
+  // Runs callback(true) on the next frame, or callback(false) once
+  // FRAME_WAIT_MS passed without one (#23) — exactly once either way.
+  function onNextFrame(callback) {
+    let done = false;
+    const finish = (framed) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(fallback);
+      callback(framed);
+    };
+    const fallback = window.setTimeout(() => finish(false), FRAME_WAIT_MS);
+    window.requestAnimationFrame(() => finish(true));
+  }
+
   function schedulePolling() {
     window.clearTimeout(pollTimer);
-    pollTimer = window.setTimeout(async function poll() {
-      if (!screensaverActive) {
-        await fetchState();
-      } else if (performance.now() - lastScreensaverPollAt >= SCREENSAVER_POLL_MS) {
-        lastScreensaverPollAt = performance.now();
-        await fetchState({ quiet: true });
+    pollTimer = window.setTimeout(function poll() {
+      const quiet = screensaverActive;
+      if (quiet && performance.now() - lastScreensaverPollAt < SCREENSAVER_POLL_MS) {
+        schedulePolling();
+        return;
       }
-      schedulePolling();
+      if (quiet) lastScreensaverPollAt = performance.now();
+      // Ask for a frame only when a request goes out (#23), not on every tick.
+      onNextFrame(async (framed) => {
+        await fetchState({ quiet, framed });
+        schedulePolling();
+      });
     }, POLL_INTERVAL_MS);
   }
 

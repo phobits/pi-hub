@@ -1,5 +1,7 @@
 # Installed by scripts/install-pi.sh to /etc/sudoers.d/smart-display (0440).
 # Ticket #2: the panel's "Ausschalten" / "Neu starten" buttons run exactly
-# these two commands via `sudo -n`. Nothing else is granted. The service user
-# is substituted by the installer.
-pi ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot
+# these two commands via `sudo -n`. #23: the frozen-panel watchdog reuses the
+# reboot and adds the kiosk restart. Nothing else is granted; every line
+# matches an argv in smart_display/power.py COMMANDS. The service user is
+# substituted by the installer.
+pi ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl restart --no-block smart-display-kiosk.service

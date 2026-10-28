@@ -11,6 +11,24 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-28
+
+### Hinzugefügt
+
+- Wächter für ein eingefrorenes Panel
+  ([#23](https://github.com/phobits/pi-hub/issues/23)): Am 28.10. hing die
+  GPU, das Panel zeigte 90 Minuten lang 14:03, und alle Units blieben
+  `active`. `app.js` wartet vor jedem geplanten State-Poll auf einen
+  gezeichneten Frame und markiert den Poll dann mit `X-Kiosk-Frame: 1`.
+  Bleibt die Markierung 15 Minuten aus und läuft der Kiosk, startet das
+  Backend ihn neu. Kommt 10 Minuten später immer noch keine, startet es den
+  Pi neu, höchstens einmal in 6 Stunden. Ein gestoppter Kiosk (`inactive`)
+  bleibt unangetastet. `/health` meldet `kiosk.phase` und
+  `kiosk.frame_age_seconds`. Aktiv nur mit `APP_ALLOW_SHUTDOWN=true`. Die
+  sudoers-Regel erlaubt dafür zusätzlich
+  `systemctl restart --no-block smart-display-kiosk.service`; sie erreicht
+  das Gerät nur über `install-pi.sh`.
+
 ## [0.14.0] - 2026-10-26
 
 ### Hinzugefügt

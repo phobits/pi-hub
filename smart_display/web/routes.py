@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from smart_display.cache.disk_cache import DiskCache
 from smart_display.i18n import format_initial_clock
+from smart_display.kiosk_watchdog import FRAME_HEADER
 from smart_display.models import PhotoManifestEntry
 from smart_display.night import is_night, window_for_ui
 from smart_display.scheduler import DEFAULT_PAUSE_TTL_SECONDS
@@ -141,6 +142,11 @@ def create_blueprint() -> Blueprint:
     @blueprint.get("/api/state")
     def api_state():
         services = current_app.extensions["smart_display"]
+        # #23: only a poll that waited for a rendered frame proves the panel
+        # still draws; app.js sends the header for nothing else.
+        watchdog = services.get("kiosk_watchdog")
+        if watchdog is not None and request.headers.get(FRAME_HEADER) == "1":
+            watchdog.note_frame()
         state = _with_runtime_flags(services["state_store"].to_dict(), services)
         payload, etag = _encode_state(state)
         if request.if_none_match.contains(etag):
@@ -332,7 +338,11 @@ def create_blueprint() -> Blueprint:
     @blueprint.get("/health")
     def health():
         services = current_app.extensions["smart_display"]
-        return jsonify(services["state_store"].health_payload())
+        payload = services["state_store"].health_payload()
+        watchdog = services.get("kiosk_watchdog")
+        if watchdog is not None:
+            payload["kiosk"] = watchdog.status()
+        return jsonify(payload)
 
     @blueprint.get("/media/screensaver/<path:filename>")
     def screensaver_media(filename: str):

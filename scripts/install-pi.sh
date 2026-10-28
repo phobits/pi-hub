@@ -328,17 +328,18 @@ elif [[ "${SMART_DISPLAY_ZRAM:-true}" == "true" && -f /etc/default/zramswap ]]; 
     echo "  zram: 128 MB über zram-tools (aktiv nach Reboot)"
 fi
 
-# sudo-Regel: genau zwei Kommandos für den Ausschaltknopf, nichts sonst.
+# sudo-Regel: Ausschaltknopf (poweroff/reboot) und Panel-Wächter (#23,
+# Kiosk-Neustart), nichts sonst.
 SUDOERS_TMP="$(mktemp)"
 sed "s/^pi /$SERVICE_USER /" "$INSTALL_DIR/deploy/sudoers/smart-display" > "$SUDOERS_TMP"
 if visudo -cf "$SUDOERS_TMP" >/dev/null; then
     install -m 440 -o root -g root "$SUDOERS_TMP" /etc/sudoers.d/smart-display
-    echo "  sudoers: $SERVICE_USER darf systemctl poweroff|reboot"
+    echo "  sudoers: $SERVICE_USER darf systemctl poweroff|reboot|restart Kiosk"
 else
     echo "  Fehler: sudoers-Regel ungültig, nicht installiert." >&2
 fi
 rm -f "$SUDOERS_TMP"
-echo "  Hinweis: APP_ALLOW_SHUTDOWN=true in $INSTALL_DIR/.env schaltet den Knopf frei."
+echo "  Hinweis: APP_ALLOW_SHUTDOWN=true in $INSTALL_DIR/.env schaltet Knopf und Panel-Wächter frei."
 
 # --- Fertig -------------------------------------------------------------------
 
