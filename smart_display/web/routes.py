@@ -66,6 +66,11 @@ def _with_runtime_flags(state: dict, services: dict) -> dict:
     return state
 
 
+def _pi5_enabled(services: dict) -> bool:
+    provider = services.get("pi5_status")
+    return bool(provider is not None and provider.enabled)
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -125,6 +130,7 @@ def create_blueprint() -> Blueprint:
                 "night": night_window,
                 "allow_shutdown": bool(config.app.allow_shutdown),
                 "state_etag": state_etag,
+                "pi5_enabled": _pi5_enabled(services),
             },
             initial_state=state,
             initial_night=initial_night,
@@ -304,6 +310,17 @@ def create_blueprint() -> Blueprint:
         """Short upcoming queue for the detail screen, fetched only on demand."""
         services = current_app.extensions["smart_display"]
         return jsonify(services["spotify_provider"].list_queue())
+
+    @blueprint.get("/api/pi5")
+    @local_only
+    def pi5_status():
+        """pi5 status for the pi5 screen (#24). Polled only while that screen
+        is visible; the provider fetches from the pi5 at most every 10 s."""
+        services = current_app.extensions["smart_display"]
+        provider = services.get("pi5_status")
+        if provider is None:
+            return jsonify({"status": "disabled", "updated_at": None, "message": "", "data": None})
+        return jsonify(provider.status())
 
     @blueprint.get("/api/spotify/devices")
     @local_only

@@ -11,6 +11,29 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-01
+
+### Hinzugefügt
+
+- Vierter Screen „pi5“ ([#24](https://github.com/phobits/pi-hub/issues/24)):
+  Ein Wisch weiter nach dem Wetter zeigt er den Zustand des Pi 5, der DNS
+  und Backups trägt. Zu sehen sind Temperatur, Lüfter, Arbeitsspeicher,
+  SD-Karte, Stromversorgung, letztes Backup und Update sowie die Container,
+  Probleme zuerst. Die Daten kommen von `pistatus --json` auf dem pi5
+  (Repo `pi5-config`, Port 8787, ein Lauf von etwa 0,1 s pro Abfrage, kein
+  dauerhafter Dienst). Abgefragt wird nur, solange der Screen sichtbar ist
+  (`/api/pi5`, alle 30 s). Es gibt keinen Scheduler-Job, keinen Abschnitt
+  in `/api/state` und keinen Eintrag in `last_good.json`. Die Ampel kommt
+  vom pi5: Neutral ist der Normalfall, Bernstein zeigt Warnung, veraltet
+  oder unbekannt, Rot zeigt eine Störung. Fällt der pi5 aus, bleiben die
+  Werte höchstens 10 Minuten mit „Stand …“ stehen. Fällt der lokale Dienst
+  aus, wird nicht der pi5 beschuldigt. Der Screen existiert nur mit
+  `PI5_STATUS_URL` (oder im Demo-Modus).
+- `scripts/check-gestures.py` und `scripts/screenshot-states.py` decken den
+  vierten Screen ab.
+- `CLAUDE.md`: Auf den Macs laufen die Checks aus `.venv`, weil dem
+  System-Python `caldav`/`icalendar` fehlen.
+
 ## [0.14.1] - 2026-10-28
 
 ### Hinzugefügt

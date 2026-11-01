@@ -285,6 +285,57 @@
         </section>
       </div>
 
+      <!-- #24: screen 4, the pi5's pistatus. Always in the DOM (app.js reads
+           its nodes unguarded), but in SCREEN_ORDER only when the backend has
+           PI5_STATUS_URL — otherwise nothing can page here. /api/pi5 is
+           polled only while this screen is visible. data-state: loading ·
+           ok · stale · error. -->
+      <div class="display-screen display-screen--pi5" id="screen-pi5" aria-hidden="true">
+        <section class="pi5" id="pi5-detail" data-state="loading" aria-label="Status pi5">
+          <header class="pi5__top">
+            <h1 class="pi5__host" id="pi5-host">pi5</h1>
+            <div class="pi5__meta" id="pi5-meta"></div>
+          </header>
+
+          <div class="pi5__message">
+            <div class="pi5__message-title" id="pi5-message-title">Status wird geladen</div>
+            <div class="pi5__message-sub" id="pi5-message-sub"></div>
+          </div>
+
+          <div class="pi5__metrics">
+            <div class="pi5-metric" id="pi5-temp">
+              <div class="pi5-metric__value" id="pi5-temp-value">–</div>
+              <div class="pi5-metric__label">Temperatur</div>
+              <div class="pi5-metric__detail" id="pi5-temp-detail"></div>
+            </div>
+            <div class="pi5-metric" id="pi5-fan">
+              <div class="pi5-metric__value" id="pi5-fan-value">–</div>
+              <div class="pi5-metric__label">Lüfter</div>
+              <div class="pi5-metric__detail" id="pi5-fan-detail"></div>
+            </div>
+            <div class="pi5-metric" id="pi5-ram">
+              <div class="pi5-metric__value" id="pi5-ram-value">–</div>
+              <div class="pi5-metric__label">Arbeitsspeicher</div>
+              <div class="pi5-metric__detail" id="pi5-ram-detail"></div>
+            </div>
+            <div class="pi5-metric" id="pi5-disk">
+              <div class="pi5-metric__value" id="pi5-disk-value">–</div>
+              <div class="pi5-metric__label">SD-Karte</div>
+              <div class="pi5-metric__detail" id="pi5-disk-detail"></div>
+            </div>
+          </div>
+
+          <div class="pi5__lists">
+            <ul class="pi5-list">
+              <li class="pi5-row"><span class="pi5-row__name">Stromversorgung</span><span class="pi5-row__status" id="pi5-power"></span></li>
+              <li class="pi5-row"><span class="pi5-row__name">Backup</span><span class="pi5-row__status" id="pi5-backup"></span></li>
+              <li class="pi5-row"><span class="pi5-row__name">Update</span><span class="pi5-row__status" id="pi5-update"></span></li>
+            </ul>
+            <ul class="pi5-list" id="pi5-containers" aria-label="Container"></ul>
+          </div>
+        </section>
+      </div>
+
     </div>
 
     <!-- Ticket #2/#3: quick sheet. Swipe up from anywhere or tap the grip. -->

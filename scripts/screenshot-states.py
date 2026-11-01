@@ -293,6 +293,34 @@ def hourly_short(state: dict) -> dict:
     return state
 
 
+# #24: the pi5 screen reads /api/pi5, not the state — these replace that answer.
+def _pi5_answer(variant: str) -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    now = int(datetime.now(timezone.utc).timestamp())
+    stamp = (datetime.now(timezone.utc) - timedelta(minutes=40)).isoformat(timespec="seconds")
+    data = {
+        "host": "pi5", "now": now, "boot": now - 3 * 86400 - 3600,
+        "temp_c": 78.4, "temp_level": "bad", "fan_rpm": 5120,
+        "throttled": "0x50005", "throttled_level": "bad",
+        "ram": {"used": 12_600_000_000, "total": 17_006_116_864, "pct": 74, "level": "warn"},
+        "disk": {"used": 57_900_000_000, "total": 62_256_185_344, "pct": 93, "level": "bad"},
+        "backup": {"state": "failed", "epoch": now - 5 * 3600, "result": "exit-code"},
+        "update": {"state": "unknown", "epoch": now - 6 * 86400, "result": None},
+        "containers": [
+            {"name": "pihole", "state": "running", "health": "healthy"},
+            {"name": "spotipi", "state": "running", "health": "unhealthy"},
+            {"name": "travelog-travelog-1", "state": "exited", "health": "none"},
+            *[{"name": f"svc-{i}", "state": "running", "health": "none"} for i in range(8)],
+        ],
+    }
+    if variant == "pi5-trouble":
+        return {"status": "ok", "updated_at": stamp, "message": "", "data": data}
+    if variant == "pi5-stale":
+        return {"status": "stale", "updated_at": stamp, "message": "pi5 nicht erreichbar", "data": data}
+    return {"status": "error", "updated_at": stamp, "message": "pi5 nicht erreichbar", "data": None}
+
+
 def compose(*mutators):
     def apply(state: dict) -> dict:
         for mutator in mutators:
@@ -361,6 +389,11 @@ SCENARIOS = [
     ("screensaver-night-warning", "flip", True, warn_many, ["screensaver"]),
     ("screensaver-night-warning-timer", "flip", True, compose(warn_one, timer_running), ["screensaver"]),
     ("screensaver-fallback-warning", "flip", False, warn_one, ["no-photos", "screensaver"]),
+    # #24: screen 4 (the demo server answers /api/pi5 with calm demo data).
+    ("pi5", "flip", False, None, ["pi5"]),
+    ("pi5-trouble", "flip", False, None, ["pi5-trouble", "pi5"]),
+    ("pi5-stale", "flip", False, None, ["pi5-stale", "pi5"]),
+    ("pi5-error", "flip", False, None, ["pi5-error", "pi5"]),
 ]
 
 
@@ -427,14 +460,21 @@ async def run(url: str, out: Path) -> None:
                     lambda route, request: route.fulfill(json={"image": None}),
                 )
 
+            for variant in ("pi5-trouble", "pi5-stale", "pi5-error"):
+                if variant in actions:
+                    answer = _pi5_answer(variant)
+                    await page.route(
+                        "**/api/pi5", lambda route, request, answer=answer: route.fulfill(json=answer)
+                    )
+
             if "local-lost" in actions:
                 await page.clock.install()
             await page.goto(url)
             await page.wait_for_timeout(1800)
             for action in actions:
-                if action == "weather":
-                    # Two real swipes, home → Spotify → weather.
-                    for _ in range(2):
+                if action in ("weather", "pi5"):
+                    # Real swipes: two to the weather screen, three to pi5.
+                    for _ in range(2 if action == "weather" else 3):
                         await page.mouse.move(820, 300)
                         await page.mouse.down()
                         for step in range(1, 9):

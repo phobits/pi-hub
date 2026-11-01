@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +97,16 @@ class RefreshIntervalsConfig:
 
 
 @dataclass(slots=True)
+class Pi5StatusConfig:
+    # #24: the pi5's pistatus endpoint (socket-activated, LAN only). Empty
+    # means no pi5 screen at all. Read only while that screen is visible.
+    # pistatus answers in ~0.15 s; HttpClient retries once on a timeout, so a
+    # powered-off pi5 holds a request for 2 × this.
+    url: str = ""
+    timeout_seconds: int = 2
+
+
+@dataclass(slots=True)
 class AppConfig:
     root_dir: Path
     app: AppSection
@@ -105,6 +115,7 @@ class AppConfig:
     spotify: SpotifyConfig
     screensaver: ScreensaverConfig
     refresh_intervals: RefreshIntervalsConfig
+    pi5_status: Pi5StatusConfig = field(default_factory=Pi5StatusConfig)
 
     @property
     def last_good_path(self) -> Path:
@@ -274,6 +285,21 @@ def load_config_from_mapping(
                 mapping.get("refresh_intervals", {}).get("weather_warnings_seconds", 300)
             ),
         ),
+        pi5_status=_pi5_status_config(mapping.get("pi5_status") or {}),
+    )
+
+
+def _pi5_status_config(section: dict[str, Any]) -> Pi5StatusConfig:
+    # An optional screen must never keep the app from starting: an empty or
+    # garbled timeout ("PI5_STATUS_TIMEOUT_SECONDS=") falls back to the default.
+    default = Pi5StatusConfig()
+    try:
+        timeout = int(section.get("timeout_seconds", default.timeout_seconds))
+    except (TypeError, ValueError):
+        timeout = default.timeout_seconds
+    return Pi5StatusConfig(
+        url=str(section.get("url", "") or "").strip(),
+        timeout_seconds=timeout if timeout > 0 else default.timeout_seconds,
     )
 
 
@@ -390,6 +416,8 @@ def _apply_env_overrides(config: dict[str, Any], env: dict[str, str]) -> None:
         "REFRESH_WEATHER_HOURLY_SECONDS": ("refresh_intervals", "weather_hourly_seconds"),
         "REFRESH_WEATHER_NOWCAST_SECONDS": ("refresh_intervals", "weather_nowcast_seconds"),
         "REFRESH_WEATHER_WARNINGS_SECONDS": ("refresh_intervals", "weather_warnings_seconds"),
+        "PI5_STATUS_URL": ("pi5_status", "url"),
+        "PI5_STATUS_TIMEOUT_SECONDS": ("pi5_status", "timeout_seconds"),
     }
 
     for env_key, path in mapping.items():

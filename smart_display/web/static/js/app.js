@@ -13,9 +13,18 @@
   let screenAnimationTimer = null;
   let queueRefreshTimer = null;
   let queueRequestInFlight = false;
+  // #24: the pi5 screen polls /api/pi5 only while it is visible.
+  let pi5RefreshTimer = null;
+  let pi5RequestInFlight = false;
+  let pi5Result = null;
+  let pi5ResultAt = 0;
+  let pi5RenderedKey = "";
   let suppressClickUntil = 0;
   const SCREEN_TRANSITION_MS = 220;
   const QUEUE_REFRESH_MS = 30_000;
+  const PI5_REFRESH_MS = 30_000;
+  // The container column has room for this many 42-px rows.
+  const PI5_MAX_ROWS = 8;
   const SWIPE_MIN_X = 72;
   // Generous on purpose: a deliberate swipe on a wall-mounted panel is slower
   // than a phone flick, and 800 ms rejected careful gestures outright.
@@ -711,6 +720,28 @@
     homeScreen: document.getElementById("screen-home"),
     spotifyScreen: document.getElementById("screen-spotify"),
     weatherScreen: document.getElementById("screen-weather"),
+    pi5Screen: document.getElementById("screen-pi5"),
+    pi5Detail: document.getElementById("pi5-detail"),
+    pi5Host: document.getElementById("pi5-host"),
+    pi5Meta: document.getElementById("pi5-meta"),
+    pi5MessageTitle: document.getElementById("pi5-message-title"),
+    pi5MessageSub: document.getElementById("pi5-message-sub"),
+    pi5Temp: document.getElementById("pi5-temp"),
+    pi5TempValue: document.getElementById("pi5-temp-value"),
+    pi5TempDetail: document.getElementById("pi5-temp-detail"),
+    pi5Fan: document.getElementById("pi5-fan"),
+    pi5FanValue: document.getElementById("pi5-fan-value"),
+    pi5FanDetail: document.getElementById("pi5-fan-detail"),
+    pi5Ram: document.getElementById("pi5-ram"),
+    pi5RamValue: document.getElementById("pi5-ram-value"),
+    pi5RamDetail: document.getElementById("pi5-ram-detail"),
+    pi5Disk: document.getElementById("pi5-disk"),
+    pi5DiskValue: document.getElementById("pi5-disk-value"),
+    pi5DiskDetail: document.getElementById("pi5-disk-detail"),
+    pi5Power: document.getElementById("pi5-power"),
+    pi5Backup: document.getElementById("pi5-backup"),
+    pi5Update: document.getElementById("pi5-update"),
+    pi5Containers: document.getElementById("pi5-containers"),
     wxTemp: document.getElementById("wx-temp"),
     wxIcon: document.getElementById("wx-icon"),
     wxCondition: document.getElementById("wx-condition"),
@@ -1163,6 +1194,9 @@
     // #22: a warning ends on its minute even when no fetch lands.
     renderScreensaverWarning();
     renderWeatherDetail(false);
+    if (activeScreen === "pi5" && !screensaverActive) {
+      renderPi5(false);
+    }
     if (screensaverActive) {
       updateScreensaverFlip(false);
       return;
@@ -3091,9 +3125,282 @@
     queueRefreshTimer = window.setInterval(loadSpotifyQueue, QUEUE_REFRESH_MS);
   }
 
-  // #22: three screens in a line. A swipe moves one step and stops at either
-  // end — there is no wrap from the weather screen back to home.
-  const SCREEN_ORDER = ["home", "spotify", "weather"];
+  // #22: the screens in a line. A swipe moves one step and stops at either
+  // end — there is no wrap from the last screen back to home. #24: the pi5
+  // screen comes last and exists only when the backend can reach a pi5.
+  const SCREEN_ORDER = config.pi5_enabled
+    ? ["home", "spotify", "weather", "pi5"]
+    : ["home", "spotify", "weather"];
+
+  // ---- #24: pi5 screen ------------------------------------------------------
+  // pistatus from the pi5, fetched by the backend at most every 10 s. The
+  // traffic lights come from the pi5 (thresholds live in pistatus only);
+  // here they only pick a tone. Unknown stays "–", never 0 or "ok".
+  const PI5_NUM_FMT = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 });
+  const PI5_INT_FMT = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
+  // Same cap as the backend's STALE_MAX_AGE_SECONDS: older figures are not shown.
+  const PI5_STALE_MAX_MS = 600_000;
+  const GIB = 1024 ** 3;
+
+  function pi5Tone(level) {
+    if (level === "bad") return "bad";
+    if (level === "warn") return "warn";
+    if (level === "unknown") return "unknown";
+    return "";
+  }
+
+  function pi5Stamp(epoch) {
+    return Number.isFinite(epoch) ? formatStamp(new Date(epoch * 1000).toISOString()) : "";
+  }
+
+  // Both stamps come from the pi5's own clock, so the Zero's clock (wrong
+  // until NTP after a power cut) does not enter; the time since the fetch is
+  // measured with performance.now().
+  function pi5Uptime(data) {
+    if (!Number.isFinite(data.boot) || !Number.isFinite(data.now)) return "";
+    const elapsed = (performance.now() - pi5ResultAt) / 1000;
+    const minutes = Math.floor((data.now - data.boot + elapsed) / 60);
+    if (minutes < 0) return "";
+    if (minutes < 60) return `${Math.max(1, minutes)} Min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} Std`;
+    const days = Math.floor(hours / 24);
+    return days === 1 ? "1 Tag" : `${days} Tagen`;
+  }
+
+  function pi5Usage(usage) {
+    const pct = usage && Number.isFinite(usage.pct) ? usage.pct : null;
+    if (pct === null) return { value: "–", detail: "nicht auslesbar", tone: "unknown" };
+    const gb = (bytes) => PI5_NUM_FMT.format(bytes / GIB);
+    const detail = Number.isFinite(usage.used) && Number.isFinite(usage.total)
+      ? `${gb(usage.used)} von ${gb(usage.total)} GB`
+      : "";
+    return { value: `${pct} %`, detail, tone: pi5Tone(usage.level) };
+  }
+
+  function pi5RunStatus(run) {
+    const stamp = pi5Stamp(run && run.epoch);
+    const withStamp = (text) => (stamp ? `${text} · ${stamp}` : text);
+    switch (run && run.state) {
+      case "ok":
+        return [stamp || "ok", ""];
+      case "stale":
+        return [withStamp("veraltet"), "warn"];
+      case "failed":
+        return [withStamp("fehlgeschlagen"), "bad"];
+      case "running":
+        return ["läuft gerade", ""];
+      case "never":
+        return ["noch nie", "warn"];
+      default:
+        return [withStamp("Ergebnis unbekannt"), "warn"];
+    }
+  }
+
+  function pi5ContainerStatus(container) {
+    switch (container.state) {
+      case "running":
+        if (container.health === "unhealthy") return ["gestört", "bad"];
+        if (container.health === "starting") return ["startet", "warn"];
+        return ["läuft", ""];
+      case "restarting":
+        return ["startet neu", "warn"];
+      case "paused":
+        return ["pausiert", "warn"];
+      case "created":
+        return ["nicht gestartet", "warn"];
+      case "exited":
+        return ["gestoppt", "bad"];
+      case "dead":
+        return ["ausgefallen", "bad"];
+      default:
+        return ["unbekannt", "warn"];
+    }
+  }
+
+  function setPi5Metric(tile, valueNode, detailNode, { value, detail, tone }) {
+    valueNode.textContent = value;
+    detailNode.textContent = detail;
+    tile.dataset.tone = tone;
+  }
+
+  function setPi5Status(node, [text, tone]) {
+    node.textContent = text;
+    node.dataset.tone = tone;
+  }
+
+  function pi5Row(name, [text, tone], extraClass = "") {
+    const row = document.createElement("li");
+    row.className = `pi5-row${extraClass ? ` ${extraClass}` : ""}`;
+    const label = document.createElement("span");
+    label.className = "pi5-row__name";
+    label.textContent = name;
+    row.append(label);
+    if (text) {
+      const status = document.createElement("span");
+      status.className = "pi5-row__status";
+      status.dataset.tone = tone;
+      status.textContent = text;
+      row.append(status);
+    }
+    return row;
+  }
+
+  function renderPi5Containers(containers) {
+    const list = nodes.pi5Containers;
+    list.replaceChildren();
+    if (!Array.isArray(containers)) {
+      list.append(pi5Row("Docker", ["antwortet nicht", "bad"]));
+      return;
+    }
+    if (!containers.length) {
+      list.append(pi5Row("Keine Container", ["", ""], "pi5-row--quiet"));
+      return;
+    }
+    // Problems first, so a cut list never hides the one that matters.
+    const rank = { bad: 0, warn: 1, "": 2 };
+    const rows = containers
+      .map((container, index) => ({ container, index, status: pi5ContainerStatus(container) }))
+      .sort((a, b) => rank[a.status[1]] - rank[b.status[1]] || a.index - b.index);
+    const shown = rows.length > PI5_MAX_ROWS ? rows.slice(0, PI5_MAX_ROWS - 1) : rows;
+    shown.forEach(({ container, status }) => list.append(pi5Row(container.name, status)));
+    if (shown.length < rows.length) {
+      list.append(pi5Row(`+${rows.length - shown.length} weitere`, ["", ""], "pi5-row--quiet"));
+    }
+  }
+
+  // What the screen shows for the current result: stale data older than the
+  // cap counts as none, whoever failed (the pi5 or the local backend).
+  function pi5View(result) {
+    if (result.data) {
+      if (result.status === "ok") return { view: "ok", data: result.data };
+      const age = Date.now() - (parseIsoMs(result.updated_at) ?? -Infinity);
+      if (age <= PI5_STALE_MAX_MS) return { view: "stale", data: result.data };
+      return { view: "error", data: null };
+    }
+    if (result.status === "loading") return { view: "loading", data: null };
+    return { view: "error", data: null };
+  }
+
+  // The only part that moves with the clock (uptime, "Stand …"); the minute
+  // tick writes just this line instead of rebuilding the screen.
+  function renderPi5Meta() {
+    const result = pi5Result;
+    const { view, data } = result ? pi5View(result) : { view: "loading", data: null };
+    if (!data) {
+      nodes.pi5Meta.textContent = "";
+    } else if (view === "stale") {
+      const stamp = formatStamp(result.updated_at);
+      // A failing local backend is not the pi5's fault (#18): no blame then.
+      const lead = result.local ? "Stand" : "nicht erreichbar · Stand";
+      nodes.pi5Meta.textContent = stamp ? `${lead} ${stamp}` : lead;
+    } else {
+      const uptime = pi5Uptime(data);
+      nodes.pi5Meta.textContent = uptime ? `läuft seit ${uptime}` : "";
+    }
+  }
+
+  function renderPi5(force) {
+    if (!nodes.pi5Detail) return;
+    const result = pi5Result || { status: "loading", data: null, updated_at: null };
+    const { view, data } = pi5View(result);
+    const key = JSON.stringify([result, view]);
+    if (!force && key === pi5RenderedKey) {
+      renderPi5Meta();
+      return;
+    }
+    pi5RenderedKey = key;
+    nodes.pi5Detail.dataset.state = view;
+    renderPi5Meta();
+
+    if (!data) {
+      if (view === "error") {
+        const stamp = formatStamp(result.updated_at);
+        let title = "pi5 nicht erreichbar";
+        if (result.local) title = "Status nicht verfügbar";
+        else if (result.status === "disabled") title = "pi5 nicht eingerichtet";
+        nodes.pi5MessageTitle.textContent = title;
+        nodes.pi5MessageSub.textContent = stamp ? `zuletzt ${stamp}` : "";
+      } else {
+        nodes.pi5MessageTitle.textContent = "Status wird geladen";
+        nodes.pi5MessageSub.textContent = "";
+      }
+      return;
+    }
+
+    nodes.pi5Host.textContent = data.host || "pi5";
+
+    setPi5Metric(nodes.pi5Temp, nodes.pi5TempValue, nodes.pi5TempDetail,
+      Number.isFinite(data.temp_c)
+        ? { value: `${PI5_NUM_FMT.format(data.temp_c)} °C`, detail: "", tone: pi5Tone(data.temp_level) }
+        : { value: "–", detail: "nicht auslesbar", tone: "unknown" });
+    let fan = { value: "–", detail: "nicht auslesbar", tone: "unknown" };
+    if (data.fan_rpm === 0) fan = { value: "aus", detail: "", tone: "" };
+    else if (Number.isFinite(data.fan_rpm)) {
+      fan = { value: PI5_INT_FMT.format(data.fan_rpm), detail: "U/min", tone: "" };
+    }
+    setPi5Metric(nodes.pi5Fan, nodes.pi5FanValue, nodes.pi5FanDetail, fan);
+    setPi5Metric(nodes.pi5Ram, nodes.pi5RamValue, nodes.pi5RamDetail, pi5Usage(data.ram));
+    setPi5Metric(nodes.pi5Disk, nodes.pi5DiskValue, nodes.pi5DiskDetail, pi5Usage(data.disk));
+
+    const power = {
+      ok: ["ok", ""],
+      warn: ["Warnung · Netzteil/Kühlung prüfen", "warn"],
+      bad: ["gedrosselt · Netzteil/Kühlung prüfen", "bad"],
+    }[data.throttled_level] || ["nicht auslesbar", "warn"];
+    setPi5Status(nodes.pi5Power, power);
+    setPi5Status(nodes.pi5Backup, pi5RunStatus(data.backup));
+    setPi5Status(nodes.pi5Update, pi5RunStatus(data.update));
+    renderPi5Containers(data.containers);
+  }
+
+  async function loadPi5Status() {
+    if (activeScreen !== "pi5" || screensaverActive || pi5RequestInFlight) {
+      return;
+    }
+    pi5RequestInFlight = true;
+    try {
+      const result = await fetchJson("/api/pi5");
+      if (result && typeof result.status === "string") {
+        pi5Result = result;
+        pi5ResultAt = performance.now();
+      } else {
+        // The local backend did not answer — not the pi5. Keep what is on
+        // screen with its age (pi5View drops it after PI5_STALE_MAX_MS) and
+        // do not name the pi5 as the culprit. pi5ResultAt stays: it belongs
+        // to the data, and the uptime counts on from it.
+        const previous = pi5Result;
+        pi5Result = previous && previous.data
+          ? { ...previous, status: "stale", local: true }
+          : { status: "error", data: null, updated_at: previous ? previous.updated_at : null, local: true };
+      }
+      if (activeScreen === "pi5" && !screensaverActive) {
+        renderPi5(false);
+      }
+    } finally {
+      pi5RequestInFlight = false;
+    }
+  }
+
+  function stopPi5Refresh() {
+    window.clearInterval(pi5RefreshTimer);
+    pi5RefreshTimer = null;
+  }
+
+  function startPi5Refresh() {
+    stopPi5Refresh();
+    if (activeScreen !== "pi5" || screensaverActive) {
+      return;
+    }
+    // A result from an earlier visit is not shown as current while the new
+    // one is on its way.
+    if (pi5Result && performance.now() - pi5ResultAt > PI5_REFRESH_MS) {
+      pi5Result = null;
+    }
+    renderPi5(true);
+    loadPi5Status();
+    pi5RefreshTimer = window.setInterval(loadPi5Status, PI5_REFRESH_MS);
+  }
 
   function setActiveScreen(target, options = {}) {
     if (!nodes.screenStage || !SCREEN_ORDER.includes(target)) {
@@ -3116,6 +3423,7 @@
       [nodes.homeScreen, "home"],
       [nodes.spotifyScreen, "spotify"],
       [nodes.weatherScreen, "weather"],
+      [nodes.pi5Screen, "pi5"],
     ].forEach(([screen, name]) => {
       const selected = name === target;
       screen.classList.toggle("is-active", selected);
@@ -3138,12 +3446,19 @@
       stopAnalogSecondTick();
       stopQueueRefresh();
       renderWeatherDetail(false);
+    } else if (target === "pi5") {
+      stopAnalogSecondTick();
+      stopQueueRefresh();
+      startPi5Refresh();
     } else {
       stopQueueRefresh();
       applyWatchFace(document.body.getAttribute("data-watch-face") || "flip");
     }
     if (target !== "weather") {
       closeWarnSheet();
+    }
+    if (target !== "pi5") {
+      stopPi5Refresh();
     }
     // Both progress renderers are gated on the visible screen, so repaint the
     // one that just became visible instead of waiting up to a second for it.

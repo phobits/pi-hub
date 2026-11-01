@@ -173,8 +173,15 @@ h3 {
   transform: translateX(28px);
 }
 
-/* With the weather screen in front, Spotify lies to its left. */
-.screen-stage[data-active-screen="weather"] .display-screen--spotify {
+.display-screen--pi5 {
+  transform: translateX(28px);
+}
+
+/* With the weather screen in front, Spotify lies to its left; with the pi5
+   screen (#24) in front, both do. */
+.screen-stage[data-active-screen="weather"] .display-screen--spotify,
+.screen-stage[data-active-screen="pi5"] .display-screen--spotify,
+.screen-stage[data-active-screen="pi5"] .display-screen--weather {
   transform: translateX(-28px);
 }
 
@@ -3010,3 +3017,176 @@ body[data-night="true"] .picker__sheet {
 .warn-sheet__footer.is-behind {
   color: var(--amber);
 }
+
+/* =============================================================================
+   Screen 4 — pi5 status (#24)
+   Rows: top 48 · metrics 112 · lists 342, 20 px gaps, 22/28 px padding =
+   600 px. Neutral by default; amber (warn, behind, unknown) and red (bad,
+   failed, stopped) only where the problem is — no badges, no dots.
+   ========================================================================== */
+.pi5 {
+  display: grid;
+  grid-template-rows: 48px 112px minmax(0, 1fr);
+  row-gap: 20px;
+  width: 100%;
+  height: 100%;
+  padding: 22px 28px 28px;
+}
+
+.pi5__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+}
+
+.pi5__host {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 48px;
+}
+
+.pi5__meta {
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pi5[data-state="stale"] .pi5__meta {
+  color: var(--amber);
+}
+
+/* Loading and "nicht erreichbar" take the whole body instead of empty tiles. */
+.pi5__message {
+  display: none;
+  grid-row: 2 / 4;
+  align-self: center;
+  justify-self: center;
+  text-align: center;
+}
+
+.pi5[data-state="loading"] .pi5__message,
+.pi5[data-state="error"] .pi5__message {
+  display: block;
+}
+
+.pi5[data-state="loading"] .pi5__metrics,
+.pi5[data-state="loading"] .pi5__lists,
+.pi5[data-state="error"] .pi5__metrics,
+.pi5[data-state="error"] .pi5__lists {
+  display: none;
+}
+
+.pi5__message-title {
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.pi5[data-state="loading"] .pi5__message-title {
+  color: var(--ink-3);
+}
+
+.pi5__message-sub {
+  margin-top: 6px;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.pi5__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 24px;
+}
+
+.pi5-metric {
+  min-width: 0;
+}
+
+.pi5-metric__value {
+  font-family: var(--font-display);
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 60px;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pi5-metric__label {
+  margin-top: 4px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.pi5-metric__detail {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pi5-metric[data-tone="warn"] .pi5-metric__value { color: var(--amber); }
+.pi5-metric[data-tone="bad"] .pi5-metric__value { color: var(--warn-3); }
+.pi5-metric[data-tone="unknown"] .pi5-metric__value { color: var(--ink-3); }
+.pi5-metric[data-tone="unknown"] .pi5-metric__detail { color: var(--amber); }
+
+.pi5__lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 48px;
+  min-height: 0;
+}
+
+.pi5-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.pi5-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 42px;
+  border-bottom: 1px solid var(--hair);
+}
+
+/* The name keeps its room ("Stromversorgung"); the status ellipsizes first. */
+.pi5-row__name {
+  flex: 0 0 auto;
+  max-width: 62%;
+  font-size: 19px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pi5-row--quiet .pi5-row__name {
+  color: var(--ink-3);
+}
+
+.pi5-row__status {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pi5-row__status[data-tone="warn"] { color: var(--amber); }
+.pi5-row__status[data-tone="bad"] { color: var(--warn-3); }

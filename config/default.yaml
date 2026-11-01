@@ -60,5 +60,9 @@
     "weather_hourly_seconds": 3600,
     "weather_nowcast_seconds": 900,
     "weather_warnings_seconds": 300
+  },
+  "pi5_status": {
+    "url": "",
+    "timeout_seconds": 2
   }
 }

@@ -14,6 +14,7 @@ The UI is in German (a personal device), e.g. `Heute` = today, `Stand 15:10` = a
 - **Watch faces** — tap the hero clock to cycle through the six faces; the choice persists in `localStorage`.
 - **Spotify** — swipe left on the home screen (or tap the music bar) for the full controller: now playing, scrubbing, transport, volume, queue and a device/playlist picker. Swipe right to return. The two sliders keep the horizontal axis.
 - **Weather** — swipe left once more from the Spotify screen (order home → Spotify → weather, no wrap-around): current conditions and wind, a 24-hour / today / tomorrow chart of temperature and hourly precipitation, a three-hour rain nowcast in 15-minute bars, and seven days. Tap a day for its values; hourly data exists only for today and tomorrow. Official warnings for the configured location appear as a hint at the top; tap it for the full text.
+- **pi5** — with `PI5_STATUS_URL` set, one more swipe after the weather shows the status of the Pi 5 that runs DNS and backups (`pistatus` from `pi5-config`): temperature, fan, RAM, SD card, power, last backup and update, containers. Fetched only while that screen is visible; amber/red only where something is wrong.
 - **Quick sheet** — swipe up (or tap the bottom grip): up to three countdown timers, watch face, night mode, start screensaver, power off/reboot (hold 2 s; only with `APP_ALLOW_SHUTDOWN=true`).
 - **Timers** — shown in the status rail and on the screensaver; when one ends, a full-screen visual alarm (no sound) with stop and +1 min. They survive restarts.
 - **Night** — between `APP_NIGHT_FROM` and `APP_NIGHT_TO` (default 22:30–06:00) a dimmed palette, and the screensaver shows a dark clock instead of photos. The sheet overrides it.
@@ -47,6 +48,7 @@ Defaults live in `config/default.yaml`; secrets and device-specific values go in
 - `REFRESH_WEATHER_SECONDS` (Open-Meteo, 900), `REFRESH_WEATHER_HOURLY_SECONDS` (C-LAEF, 3600), `REFRESH_WEATHER_NOWCAST_SECONDS` (INCA, 900), `REFRESH_WEATHER_WARNINGS_SECONDS` (300)
 - `CALENDAR_URL`, `CALENDAR_USERNAME`, `CALENDAR_PASSWORD`, `CALENDAR_NAME`
 - `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REFRESH_TOKEN`, `SPOTIFY_DEVICE_ID` — get a refresh token with `python3 scripts/spotify-auth.py --client-id <id> --client-secret <secret>` on a machine with a browser, after adding `http://127.0.0.1:8888/callback` as a redirect URI in the Spotify app
+- `PI5_STATUS_URL` (e.g. `http://192.168.178.199:8787/`, empty = no pi5 screen), `PI5_STATUS_TIMEOUT_SECONDS` (2)
 - `SCREENSAVER_SOURCE_URL`, `SCREENSAVER_IDLE_TIMEOUT_SECONDS`, `SCREENSAVER_REFRESH_INTERVAL_SECONDS`; own photos go into `data/screensaver-local/`
 - `APP_NIGHT_FROM`, `APP_NIGHT_TO` (`HH:MM`, empty disables), `APP_ALLOW_SHUTDOWN` (default `false`)
 

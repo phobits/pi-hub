@@ -265,14 +265,15 @@ for fam in FAMILIES:
 
 
 for fam in FAMILIES:
-    @case(f"stage: home → Spotify → weather and back, no wrap at either end ({fam})")
-    async def _stage_three(run: Run, fam=fam):
+    # #24: the demo server has the pi5 screen (demo data), so it is four.
+    @case(f"stage: home → Spotify → weather → pi5 and back, no wrap at either end ({fam})")
+    async def _stage_four(run: Run, fam=fam):
         await run.fresh()
         seen = []
-        for dx in (-200, -200, -200, 200, 200, 200):
+        for dx in (-200, -200, -200, -200, 200, 200, 200, 200):
             await run.gesture("#screen-stage", fam, horizontal(dx))
             seen.append(await run.page.evaluate(SCREEN))
-        if seen != ["spotify", "weather", "weather", "spotify", "home", "home"]:
+        if seen != ["spotify", "weather", "pi5", "pi5", "weather", "spotify", "home", "home"]:
             return f"screens {seen}"
 
 
@@ -380,6 +381,35 @@ async def _wx_screensaver_reset(run: Run):
     screen = await run.page.evaluate(SCREEN)
     if screen != "home" or await run.page.evaluate(WARN_OPEN):
         return f"screen={screen}, overlay open={await run.page.evaluate(WARN_OPEN)}"
+
+
+@case("pi5: status loads only while the pi5 screen is visible, screensaver resets")
+async def _pi5_polls_only_visible(run: Run):
+    calls = []
+    handler = lambda request: calls.append(request.url) if "/api/pi5" in request.url else None  # noqa: E731
+    run.page.on("request", handler)
+    try:
+        await run.fresh()
+        await run.to_weather()
+        await run.page.wait_for_timeout(600)
+        before = len(calls)
+        await run.gesture("#screen-stage", "both", horizontal(-200))
+        await run.page.wait_for_timeout(800)
+        on_pi5 = len(calls)
+        rendered = await run.page.evaluate("() => document.getElementById('pi5-detail').dataset.state")
+        await run.gesture("#screen-stage", "both", horizontal(200))
+        await run.page.wait_for_timeout(1500)
+        after_leave = len(calls)
+        await run.gesture("#screen-stage", "both", horizontal(-200))
+        await run.page.wait_for_timeout(600)
+        await run.screensaver()
+        await run.page.keyboard.press("Escape")
+        await run.page.wait_for_timeout(300)
+        screen = await run.page.evaluate(SCREEN)
+    finally:
+        run.page.remove_listener("request", handler)
+    if not (before == 0 and on_pi5 >= 1 and after_leave == on_pi5 and rendered == "ok" and screen == "home"):
+        return f"before={before} pi5={on_pi5} after_leave={after_leave} state={rendered} screen={screen}"
 
 
 @case("screensaver: the warning line is not a wake target", positive=False)

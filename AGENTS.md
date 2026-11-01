@@ -38,7 +38,7 @@ Wenn du eine Änderung planst, die diese Leitplanken verletzt, brauchst du eine 
 
 ## Aktueller UI-Maßstab
 
-Die UI hat drei Screens in fester Reihenfolge Home → Spotify → Wetter, gewechselt per horizontalem Wisch (rein client-seitig, alle liegen im selben Dokument — kein Router, kein zweiter Seitenaufruf). Die Reihe ist linear: Am ersten und am letzten Screen läuft der Wisch ins Leere, kein Umlauf. Es gibt **bewusst keine Seitenindikatoren**: Der Inhalt sagt eindeutig, auf welchem Screen man ist, und gestapelte Punkte widersprachen der horizontalen Wischrichtung. Nicht wieder einführen.
+Die UI hat drei Screens in fester Reihenfolge Home → Spotify → Wetter, mit `PI5_STATUS_URL` vier (→ pi5, #24), gewechselt per horizontalem Wisch (rein client-seitig, alle liegen im selben Dokument — kein Router, kein zweiter Seitenaufruf). Die Reihe ist linear: Am ersten und am letzten Screen läuft der Wisch ins Leere, kein Umlauf. Es gibt **bewusst keine Seitenindikatoren**: Der Inhalt sagt eindeutig, auf welchem Screen man ist, und gestapelte Punkte widersprachen der horizontalen Wischrichtung. Nicht wieder einführen.
 
 **Screen 1 — Homescreen (Standard), Stand „Glance“.** Keine Karten,
 keine Rahmen: Hierarchie entsteht aus Schriftgröße, Gewicht und Abstand, und nur
@@ -64,6 +64,14 @@ Die Gewichtung war früher umgekehrt (Termine breit). Ein Termin besteht aus Uhr
 **Amtliche Warnungen (GeoSphere).** Die Gemeinde bestimmt der Server per Punktabfrage aus den konfigurierten Koordinaten (`getWarningsForCoords`), nie über einen Namen. Warnungen werden auch abgefragt, wenn der Wetter-Screen nicht sichtbar ist. Sortiert nach amtlicher Stufe, dann Beginn. Sichtbar bis zum Ende (exklusiv) — ohne neuen Abruf, das Frontend vergleicht nur Zeitstempel. **Sichere Regel für kaputte Zeiten:** fehlt das Ende oder liegt es nicht nach dem Beginn, gilt die Warnung höchstens 3 Stunden nach dem letzten erfolgreichen Abruf, der sie noch geliefert hat (`UNBOUNDED_WARNING_HOLD` in `weather_detail.py`); fehlt der Beginn, gilt sie als aktiv. „Keine Warnungen“ steht nur nach einem erfolgreichen Abruf; ein erfolgreicher leerer Abruf ist die Entwarnung. Scheitert der Abruf, bleiben bestätigte, nicht abgelaufene Warnungen mit „Stand …“ stehen; ohne bekannte Warnungen gibt es keinen Alarm, sondern „Warnungen derzeit nicht verfügbar“. Ein Warnungsfehler macht das Wetter nicht „veraltet“. Die Details liegen in einem begrenzten Overlay, das in sich scrollt; Schließen (×, Tipp daneben) blättert nie die Seite.
 
 **Warnzeile im Screensaver.** Aktive und innerhalb von 24 Stunden beginnende Warnungen: die wichtigste als eine Zeile („Orange Windwarnung · bis 16:00“), weitere als „+N“, bei Abruffehler „· Stand …“. Kein Ticker, keine Animation, kein Tippziel (`pointer-events: none`, liegt bewusst außerhalb von `.screensaver__info`, damit die Weck-Fläche der Uhr nicht wächst), kein automatisches Wecken. Foto-Modus oben links, Nacht und Flip-Fallback oben mittig — Uhr und Timer bleiben frei. Damit Warnungen ankommen, pollt der Screensaver `/api/state` alle 5 Minuten statt gar nicht; diese Polls zählen nie für „Anzeige wird aktualisiert“ (#18).
+
+**Screen 4 — pi5 (#24).** Nur wenn das Backend `PI5_STATUS_URL` hat (oder im Demo-Modus); sonst endet die Reihe beim Wetter und nichts blättert hierher. Zeigt `pistatus` vom pi5 (DNS, Backups, Container): oben Hostname und „läuft seit …“, vier Werte (Temperatur, Lüfter, Arbeitsspeicher, SD-Karte), links Stromversorgung/Backup/Update, rechts die Container (höchstens 8 Zeilen, Probleme zuerst, Rest „+N weitere“). Regeln:
+
+- **Kostet nichts, solange niemand hinschaut.** `/api/pi5` wird nur gepollt, solange der Screen sichtbar ist (30 s), wie die Spotify-Queue; kein Scheduler-Job, kein Abschnitt in `DashboardState`, kein Eintrag in `last_good.json`. Das Backend holt höchstens alle 10 s einmal vom pi5.
+- **Die Ampel kommt vom pi5.** Schwellen stehen nur in `pistatus` (Repo `pi5-config`); hier wird nur eingefärbt: neutral im Normalfall, Bernstein bei Warnung, veraltet und unbekannt, Rot bei Störung, fehlgeschlagen und gestoppt — an der betroffenen Zeile, keine Punkte, keine Badges.
+- **Unbekannt bleibt unbekannt.** Nicht auslesbar ist „–“ mit „nicht auslesbar“, nie 0 oder „aus“; antwortet Docker nicht, steht „Docker antwortet nicht“ statt einer leeren Liste.
+- **pi5 weg:** mit Daten bleiben die Werte stehen und oben steht „nicht erreichbar · Stand …“ (Bernstein, höchstens 10 Minuten lang); ohne Daten nur „pi5 nicht erreichbar“, darunter „zuletzt …“. Antwortet der **lokale** Dienst nicht, wird nicht der pi5 beschuldigt: nur „Stand …“ bzw. „Status nicht verfügbar“, dieselbe 10-Minuten-Grenze.
+- „läuft seit …“ rechnet nur mit den Zeitstempeln des pi5 (`now − boot` plus die Zeit seit dem Abruf), nie mit der Uhr des Zero, die nach einem Stromausfall bis zum NTP-Abgleich falsch geht. Der Minuten-Tick schreibt nur diese Zeile, nicht den ganzen Screen.
 
 Wichtige aktuelle UI-Entscheidungen:
 
@@ -145,7 +153,7 @@ Für lokale UI-Prüfung:
   Wetter-Detail mit Regen/Morgen/fernem Tag/Warnungen/Teilausfall, Screensaver mit Warnung)
   gegen den Demo-Server — headless Chromium, nicht
   WebKit; der Gerätecheck bleibt.
-- Touch-Gesten (Seitenwisch über drei Screens, Wetter-Bedienung und Warn-Overlay, Schnellmenü, Screensaver): `python3 scripts/check-gestures.py`
+- Touch-Gesten (Seitenwisch über die Screens bis pi5, Wetter-Bedienung und Warn-Overlay, Schnellmenü, Screensaver): `python3 scripts/check-gestures.py`
   gegen den Demo-Server, WebKit und Chromium; `--self-test` prüft, dass das Skript
   eine eingebaute Störung erkennt. Beide Flächen teilen sich `createGestureTracker`
   in `app.js` — Engine-Handling (Pointer/Touch, Abbruch) nur dort ändern.
