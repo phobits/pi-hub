@@ -29,14 +29,19 @@ CACHE_TTL_SECONDS = 10.0
 # After a failed fetch the last good data is shown with its age for this long;
 # after that the screen says "nicht erreichbar" instead of hour-old numbers.
 STALE_MAX_AGE_SECONDS = 600.0
-# The answer is ~1 KB; anything near this cap is not pistatus.
+# The answer is 1–2 KB (a few containers, 8 Pi-hole clients) and at most ~6 KB
+# with every cap below full; anything near this cap is not pistatus.
 MAX_BYTES = 16_000
 # A Docker host rarely has more; the screen shows fewer anyway.
 MAX_CONTAINERS = 30
+# pistatus sends the top 8 Pi-hole clients and the screen shows 6; the cap
+# only bounds what a future pistatus could send.
+MAX_PIHOLE_CLIENTS = 10
 
 LEVELS = frozenset({"ok", "warn", "bad"})
 RUN_STATES = frozenset({"ok", "stale", "failed", "unknown", "running", "never"})
 HEALTH = frozenset({"healthy", "unhealthy", "starting", "none"})
+BLOCKING = frozenset({"enabled", "disabled", "failed", "unknown"})
 CONTAINER_STATES = frozenset(
     {"created", "restarting", "running", "removing", "paused", "exited", "dead"}
 )
@@ -54,6 +59,22 @@ DEMO_STATUS: dict[str, Any] = {
     "disk": {"used": 6_347_763_712, "total": 62_256_185_344, "pct": 11, "level": "ok"},
     "backup": {"state": "ok", "epoch": None, "result": None},
     "update": {"state": "unknown", "epoch": None, "result": None},
+    "pihole": {
+        "blocking": "enabled",
+        "total": 71_509,
+        "blocked": 17_695,
+        "percent": 24.7,
+        "clients": 13,
+        "top": [
+            {"name": "Forte.fritz.box", "ip": "192.168.178.13", "count": 27_961},
+            {"name": "Mac.fritz.box", "ip": "192.168.178.38", "count": 18_315},
+            {"name": "mPhone15.fritz.box", "ip": "192.168.178.10", "count": 12_274},
+            {"name": "eleven.fritz.box", "ip": "192.168.178.11", "count": 5_242},
+            {"name": "iPhone-Kathi.fritz.box", "ip": "192.168.178.79", "count": 3_589},
+            {"name": "ebe63ef5-f980-67f3-0866-b6e2899fa7a2.fritz.box", "ip": "192.168.178.26", "count": 1_997},
+            {"name": "pihub.fritz.box", "ip": "192.168.178.22", "count": 1_328},
+        ],
+    },
     "containers": [
         {"name": "pihole", "state": "running", "health": "healthy"},
         {"name": "travelog-backup-1", "state": "running", "health": "healthy"},
@@ -166,6 +187,7 @@ def normalize_status(payload: Any) -> dict[str, Any] | None:
         "disk": _usage(payload.get("disk")),
         "backup": _run(payload.get("backup")),
         "update": _run(payload.get("update")),
+        "pihole": _pihole(payload.get("pihole")),
         "containers": containers,
     }
 
@@ -219,6 +241,31 @@ def _run(value: Any) -> dict[str, Any]:
         "state": state if state in RUN_STATES else "unknown",
         "epoch": _int(value.get("epoch")),
         "result": _text(value.get("result"), 32),
+    }
+
+
+def _pihole(value: Any) -> dict[str, Any] | None:
+    """Pi-hole's last 24 h. ``None`` = Pi-hole did not answer (or an old pistatus)."""
+    if not isinstance(value, dict):
+        return None
+    blocking = value.get("blocking")
+    percent = _number(value.get("percent"))
+    clients = value.get("top")
+    top = []
+    if isinstance(clients, list):
+        for item in clients[:MAX_PIHOLE_CLIENTS]:
+            if not isinstance(item, dict):
+                continue
+            name, ip = _text(item.get("name"), 64), _text(item.get("ip"), 45)
+            if name or ip:
+                top.append({"name": name, "ip": ip, "count": _int(item.get("count"))})
+    return {
+        "blocking": blocking if blocking in BLOCKING else "unknown",
+        "total": _int(value.get("total")),
+        "blocked": _int(value.get("blocked")),
+        "percent": percent if percent is not None and 0 <= percent <= 100 else None,
+        "clients": _int(value.get("clients")),
+        "top": top,
     }
 
 

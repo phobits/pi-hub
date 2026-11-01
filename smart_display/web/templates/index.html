@@ -289,7 +289,7 @@
            its nodes unguarded), but in SCREEN_ORDER only when the backend has
            PI5_STATUS_URL — otherwise nothing can page here. /api/pi5 is
            polled only while this screen is visible. data-state: loading ·
-           ok · stale · error. -->
+           ok · stale · error. Left column Pi-hole (#25), right the machine. -->
       <div class="display-screen display-screen--pi5" id="screen-pi5" aria-hidden="true">
         <section class="pi5" id="pi5-detail" data-state="loading" aria-label="Status pi5">
           <header class="pi5__top">
@@ -302,36 +302,67 @@
             <div class="pi5__message-sub" id="pi5-message-sub"></div>
           </div>
 
-          <div class="pi5__metrics">
-            <div class="pi5-metric" id="pi5-temp">
-              <div class="pi5-metric__value" id="pi5-temp-value">–</div>
-              <div class="pi5-metric__label">Temperatur</div>
-              <div class="pi5-metric__detail" id="pi5-temp-detail"></div>
+          <div class="pi5__body">
+            <!-- #25: Pi-hole, last 24 h. The ring is the screen's one accent. -->
+            <div class="pi5-card pi5-hole" id="pi5-hole" data-state="ok">
+              <svg class="pi5-ring" viewBox="0 0 148 148" aria-hidden="true">
+                <circle class="pi5-ring__track" cx="74" cy="74" r="64"></circle>
+                <circle class="pi5-ring__arc" id="pi5-hole-ring" cx="74" cy="74" r="64"
+                        transform="rotate(-90 74 74)" stroke-dasharray="0 403"></circle>
+              </svg>
+              <div class="pi5-hole__share">
+                <div class="pi5-hole__share-value" id="pi5-hole-share">–</div>
+                <div class="pi5-hole__share-label">blockiert</div>
+              </div>
+              <div class="pi5-hole__figures">
+                <div class="pi5-figure">
+                  <div class="pi5-figure__value" id="pi5-hole-total">–</div>
+                  <div class="pi5-figure__label">DNS-Anfragen</div>
+                </div>
+                <div class="pi5-figure">
+                  <div class="pi5-figure__value" id="pi5-hole-blocked">–</div>
+                  <div class="pi5-figure__label">davon blockiert</div>
+                </div>
+                <div class="pi5-hole__note" id="pi5-hole-note"></div>
+              </div>
+              <div class="pi5-hole__down">Pi-hole antwortet nicht</div>
             </div>
-            <div class="pi5-metric" id="pi5-fan">
-              <div class="pi5-metric__value" id="pi5-fan-value">–</div>
-              <div class="pi5-metric__label">Lüfter</div>
-              <div class="pi5-metric__detail" id="pi5-fan-detail"></div>
-            </div>
-            <div class="pi5-metric" id="pi5-ram">
-              <div class="pi5-metric__value" id="pi5-ram-value">–</div>
-              <div class="pi5-metric__label">Arbeitsspeicher</div>
-              <div class="pi5-metric__detail" id="pi5-ram-detail"></div>
-            </div>
-            <div class="pi5-metric" id="pi5-disk">
-              <div class="pi5-metric__value" id="pi5-disk-value">–</div>
-              <div class="pi5-metric__label">SD-Karte</div>
-              <div class="pi5-metric__detail" id="pi5-disk-detail"></div>
-            </div>
-          </div>
 
-          <div class="pi5__lists">
-            <ul class="pi5-list">
-              <li class="pi5-row"><span class="pi5-row__name">Stromversorgung</span><span class="pi5-row__status" id="pi5-power"></span></li>
-              <li class="pi5-row"><span class="pi5-row__name">Backup</span><span class="pi5-row__status" id="pi5-backup"></span></li>
-              <li class="pi5-row"><span class="pi5-row__name">Update</span><span class="pi5-row__status" id="pi5-update"></span></li>
-            </ul>
-            <ul class="pi5-list" id="pi5-containers" aria-label="Container"></ul>
+            <div class="pi5-card pi5-system">
+              <div class="pi5-metric" id="pi5-temp">
+                <div class="pi5-metric__line"><span class="pi5-metric__value" id="pi5-temp-value">–</span><span class="pi5-metric__detail" id="pi5-temp-detail"></span></div>
+                <div class="pi5-metric__label">Temperatur</div>
+              </div>
+              <div class="pi5-metric" id="pi5-fan">
+                <div class="pi5-metric__line"><span class="pi5-metric__value" id="pi5-fan-value">–</span><span class="pi5-metric__detail" id="pi5-fan-detail"></span></div>
+                <div class="pi5-metric__label">Lüfter</div>
+              </div>
+              <div class="pi5-metric" id="pi5-ram">
+                <div class="pi5-metric__line"><span class="pi5-metric__value" id="pi5-ram-value">–</span><span class="pi5-metric__detail" id="pi5-ram-detail"></span></div>
+                <div class="pi5-metric__label">Arbeitsspeicher</div>
+              </div>
+              <div class="pi5-metric" id="pi5-disk">
+                <div class="pi5-metric__line"><span class="pi5-metric__value" id="pi5-disk-value">–</span><span class="pi5-metric__detail" id="pi5-disk-detail"></span></div>
+                <div class="pi5-metric__label">SD-Karte</div>
+              </div>
+            </div>
+
+            <div class="pi5-card pi5-devices">
+              <div class="pi5-devices__head">
+                <span class="pi5-devices__title">Geräte</span>
+                <span class="pi5-devices__count" id="pi5-devices-count"></span>
+              </div>
+              <ul class="pi5-list" id="pi5-devices" aria-label="Geräte nach Anfragen"></ul>
+            </div>
+
+            <div class="pi5-card pi5-services">
+              <ul class="pi5-list" id="pi5-services">
+                <li class="pi5-row"><span class="pi5-row__name">Stromversorgung</span><span class="pi5-row__status" id="pi5-power"></span></li>
+                <li class="pi5-row"><span class="pi5-row__name">Backup</span><span class="pi5-row__status" id="pi5-backup"></span></li>
+                <li class="pi5-row"><span class="pi5-row__name">Update</span><span class="pi5-row__status" id="pi5-update"></span></li>
+              </ul>
+              <ul class="pi5-list" id="pi5-containers" aria-label="Container"></ul>
+            </div>
           </div>
         </section>
       </div>

@@ -43,6 +43,8 @@
   --warn-2: #f3973a;
   --warn-3: #f0564f;
   --rain: rgba(110, 168, 255, 0.78);
+  /* #25: the pi5 screen's one accent (Pi-hole ring) — never a status colour. */
+  --accent: #9cc3ff;
   --temp-line: #f3c46b;
 }
 
@@ -69,6 +71,7 @@ body[data-night="true"] {
   --warn-2: #a96d33;
   --warn-3: #a64540;
   --rain: rgba(92, 128, 180, 0.7);
+  --accent: #5f7aa0;
   --temp-line: #b89654;
 }
 
@@ -3019,18 +3022,21 @@ body[data-night="true"] .picker__sheet {
 }
 
 /* =============================================================================
-   Screen 4 — pi5 status (#24)
-   Rows: top 48 · metrics 112 · lists 342, 20 px gaps, 22/28 px padding =
-   600 px. Neutral by default; amber (warn, behind, unknown) and red (bad,
-   failed, stopped) only where the problem is — no badges, no dots.
+   Screen 4 — pi5 status (#24, layout #25)
+   Two columns by subject: left Pi-hole (ring + devices), right the machine
+   (four values + services/containers). Rows: top 36 · cards 196 · lists 306,
+   12 px gaps, 18/20 px padding = 600 px; columns 520 · 444 + 12 = 976.
+   Neutral by default; amber (warn, behind, unknown) and red (bad, failed,
+   stopped) only where the problem is — no badges, no dots. The ring is the
+   only accent and never means a status.
    ========================================================================== */
 .pi5 {
   display: grid;
-  grid-template-rows: 48px 112px minmax(0, 1fr);
-  row-gap: 20px;
+  grid-template-rows: 36px minmax(0, 1fr);
+  row-gap: 12px;
   width: 100%;
   height: 100%;
-  padding: 22px 28px 28px;
+  padding: 18px 24px 20px;
 }
 
 .pi5__top {
@@ -3039,12 +3045,13 @@ body[data-night="true"] .picker__sheet {
   justify-content: space-between;
   gap: 24px;
   min-width: 0;
+  padding: 0 4px;
 }
 
 .pi5__host {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 600;
-  line-height: 48px;
+  line-height: 36px;
 }
 
 .pi5__meta {
@@ -3061,10 +3068,10 @@ body[data-night="true"] .picker__sheet {
   color: var(--amber);
 }
 
-/* Loading and "nicht erreichbar" take the whole body instead of empty tiles. */
+/* Loading and "nicht erreichbar" take the whole body instead of empty cards. */
 .pi5__message {
   display: none;
-  grid-row: 2 / 4;
+  grid-row: 2;
   align-self: center;
   justify-self: center;
   text-align: center;
@@ -3075,10 +3082,8 @@ body[data-night="true"] .picker__sheet {
   display: block;
 }
 
-.pi5[data-state="loading"] .pi5__metrics,
-.pi5[data-state="loading"] .pi5__lists,
-.pi5[data-state="error"] .pi5__metrics,
-.pi5[data-state="error"] .pi5__lists {
+.pi5[data-state="loading"] .pi5__body,
+.pi5[data-state="error"] .pi5__body {
   display: none;
 }
 
@@ -3098,40 +3103,181 @@ body[data-night="true"] .picker__sheet {
   color: var(--ink-3);
 }
 
-.pi5__metrics {
+.pi5__body {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  column-gap: 24px;
+  grid-template-columns: 520px minmax(0, 1fr);
+  grid-template-rows: 196px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+
+.pi5-card {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+/* ---- Pi-hole: ring with the blocked share, two figures beside it ---------- */
+.pi5-hole {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 30px;
+  padding: 22px 28px;
+}
+
+.pi5-ring {
+  grid-area: 1 / 1;
+  width: 148px;
+  height: 148px;
+}
+
+.pi5-ring__track,
+.pi5-ring__arc {
+  fill: none;
+  stroke-width: 14;
+}
+
+.pi5-ring__track {
+  stroke: var(--surface-2);
+}
+
+/* Butt caps: round ones add a stroke width to the arc and make 0,4 % look
+   like 4 %. */
+.pi5-ring__arc {
+  stroke: var(--accent);
+}
+
+.pi5-hole__share {
+  grid-area: 1 / 1;
+  justify-self: center;
+  text-align: center;
+}
+
+.pi5-hole__share-value {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 34px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pi5-hole__share-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.pi5-hole__figures {
+  grid-area: 1 / 2;
+  display: grid;
+  row-gap: 8px;
+  min-width: 0;
+}
+
+.pi5-figure__value {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 40px;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pi5-figure__label {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--ink-2);
+}
+
+.pi5-hole__note {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 18px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pi5-hole__note[data-tone="warn"] { color: var(--amber); }
+.pi5-hole__note[data-tone="bad"] { color: var(--warn-3); }
+
+/* Pi-hole silent: one red line instead of a ring at 0 and dashes. */
+.pi5-hole__down {
+  display: none;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: center;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--warn-3);
+}
+
+.pi5-hole[data-state="down"] .pi5-ring,
+.pi5-hole[data-state="down"] .pi5-hole__share,
+.pi5-hole[data-state="down"] .pi5-hole__figures {
+  display: none;
+}
+
+.pi5-hole[data-state="down"] .pi5-hole__down {
+  display: block;
+}
+
+/* ---- The machine: four values, 2 × 2 -------------------------------------- */
+.pi5-system {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: center;
+  column-gap: 20px;
+  row-gap: 16px;
+  padding: 22px 26px;
 }
 
 .pi5-metric {
   min-width: 0;
 }
 
-.pi5-metric__value {
-  font-family: var(--font-display);
-  font-size: 52px;
-  font-weight: 700;
-  line-height: 60px;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
+.pi5-metric__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
   white-space: nowrap;
 }
 
-.pi5-metric__label {
-  margin-top: 4px;
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--ink-2);
+.pi5-metric__value {
+  flex: 0 0 auto;
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 40px;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
 }
 
 .pi5-metric__detail {
+  min-width: 0;
   font-size: 15px;
   font-weight: 500;
   color: var(--ink-3);
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.pi5-metric__label {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--ink-2);
 }
 
 .pi5-metric[data-tone="warn"] .pi5-metric__value { color: var(--amber); }
@@ -3139,11 +3285,32 @@ body[data-night="true"] .picker__sheet {
 .pi5-metric[data-tone="unknown"] .pi5-metric__value { color: var(--ink-3); }
 .pi5-metric[data-tone="unknown"] .pi5-metric__detail { color: var(--amber); }
 
-.pi5__lists {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 48px;
-  min-height: 0;
+/* ---- Lists: devices (left), services + containers (right) ----------------- */
+.pi5-devices {
+  padding: 12px 26px 8px;
+}
+
+.pi5-devices__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  height: 34px;
+}
+
+.pi5-devices__title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.pi5-devices__count {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.pi5-services {
+  padding: 6px 26px;
 }
 
 .pi5-list {
@@ -3154,12 +3321,18 @@ body[data-night="true"] .picker__sheet {
 }
 
 .pi5-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   height: 42px;
   border-bottom: 1px solid var(--hair);
+}
+
+.pi5-services .pi5-list:last-child .pi5-row:last-child,
+.pi5-devices .pi5-row:last-child {
+  border-bottom: 0;
 }
 
 /* The name keeps its room ("Stromversorgung"); the status ellipsizes first. */
@@ -3190,3 +3363,28 @@ body[data-night="true"] .picker__sheet {
 
 .pi5-row__status[data-tone="warn"] { color: var(--amber); }
 .pi5-row__status[data-tone="bad"] { color: var(--warn-3); }
+
+/* A device row: name, count, and its share of the busiest device as a bar
+   along the bottom — no hairline, the bars are the rhythm. */
+.pi5-row--device {
+  height: 40px;
+  border-bottom: 0;
+}
+
+.pi5-row--device .pi5-row__name {
+  max-width: 72%;
+  font-size: 18px;
+}
+
+.pi5-row--device .pi5-row__status {
+  font-variant-numeric: tabular-nums;
+}
+
+.pi5-row__bar {
+  position: absolute;
+  left: 0;
+  bottom: 3px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ink-3);
+}

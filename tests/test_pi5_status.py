@@ -35,6 +35,13 @@ PISTATUS = {
     "disk": {"used": 6347919360, "total": 62256185344, "pct": 11, "level": "ok"},
     "backup": {"state": "ok", "epoch": 1793563587, "result": None},
     "update": {"state": "unknown", "epoch": 1792986308, "result": None},
+    "pihole": {
+        "blocking": "enabled", "total": 71681, "blocked": 17824, "percent": 24.9, "clients": 13,
+        "top": [
+            {"name": "Forte.fritz.box", "ip": "192.168.178.13", "count": 27920},
+            {"name": "Mac.fritz.box", "ip": "192.168.178.38", "count": 18380},
+        ],
+    },
     "containers": [
         {"name": "pihole", "state": "running", "health": "healthy"},
         {"name": "spotipi", "state": "running", "health": "unhealthy"},
@@ -72,6 +79,37 @@ class NormalizeStatusTest(unittest.TestCase):
     def test_docker_silent_is_not_no_containers(self) -> None:
         self.assertIsNone(normalize_status({**PISTATUS, "containers": None})["containers"])
         self.assertEqual(normalize_status({**PISTATUS, "containers": []})["containers"], [])
+
+    def test_pihole_passes_through(self) -> None:
+        self.assertEqual(normalize_status(PISTATUS)["pihole"], PISTATUS["pihole"])
+
+    def test_pihole_silent_is_none(self) -> None:
+        # null = Pi-hole did not answer; a missing key = a pistatus from before #25.
+        self.assertIsNone(normalize_status({**PISTATUS, "pihole": None})["pihole"])
+        legacy = {k: v for k, v in PISTATUS.items() if k != "pihole"}
+        self.assertIsNone(normalize_status(legacy)["pihole"])
+        self.assertIsNone(normalize_status({**PISTATUS, "pihole": "down"})["pihole"])
+
+    def test_pihole_garbage_stays_unknown(self) -> None:
+        data = normalize_status({**PISTATUS, "pihole": {
+            "blocking": "maybe", "total": "lots", "blocked": -3, "percent": 140, "clients": True,
+            "top": [{"name": "  ", "ip": None}, "junk", {"name": "x" * 99, "count": 2.5},
+                    {"ip": "10.0.0.1", "count": "?"}],
+        }})["pihole"]
+        self.assertEqual(data["blocking"], "unknown")
+        self.assertIsNone(data["total"])
+        self.assertIsNone(data["blocked"])
+        self.assertIsNone(data["percent"])
+        self.assertIsNone(data["clients"])
+        self.assertEqual(data["top"], [
+            {"name": "x" * 64, "ip": None, "count": 2},
+            {"name": None, "ip": "10.0.0.1", "count": None},
+        ])
+
+    def test_pihole_top_is_capped(self) -> None:
+        top = [{"name": f"d{i}", "ip": f"10.0.0.{i}", "count": 100 - i} for i in range(25)]
+        data = normalize_status({**PISTATUS, "pihole": {**PISTATUS["pihole"], "top": top}})
+        self.assertEqual(len(data["pihole"]["top"]), 10)
 
     def test_booleans_are_not_numbers(self) -> None:
         self.assertIsNone(normalize_status({**PISTATUS, "temp_c": True})["temp_c"])
@@ -188,6 +226,7 @@ class Pi5StatusProviderTest(unittest.TestCase):
         result = provider.status()
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["data"]["boot"], result["data"]["now"] - 19 * 60)
+        self.assertEqual(result["data"]["pihole"]["blocking"], "enabled")
         self.assertEqual(self.http.calls, [])
 
 

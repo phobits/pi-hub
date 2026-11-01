@@ -23,8 +23,10 @@
   const SCREEN_TRANSITION_MS = 220;
   const QUEUE_REFRESH_MS = 30_000;
   const PI5_REFRESH_MS = 30_000;
-  // The container column has room for this many 42-px rows.
-  const PI5_MAX_ROWS = 8;
+  // #25: the services card has 7 rows — power, backup, update, then at most
+  // this many containers (a cut list ends in "+N weitere").
+  const PI5_MAX_ROWS = 4;
+  const PI5_MAX_DEVICES = 6;
   const SWIPE_MIN_X = 72;
   // Generous on purpose: a deliberate swipe on a wall-mounted panel is slower
   // than a phone flick, and 800 ms rejected careful gestures outright.
@@ -742,6 +744,14 @@
     pi5Backup: document.getElementById("pi5-backup"),
     pi5Update: document.getElementById("pi5-update"),
     pi5Containers: document.getElementById("pi5-containers"),
+    pi5Hole: document.getElementById("pi5-hole"),
+    pi5HoleRing: document.getElementById("pi5-hole-ring"),
+    pi5HoleShare: document.getElementById("pi5-hole-share"),
+    pi5HoleTotal: document.getElementById("pi5-hole-total"),
+    pi5HoleBlocked: document.getElementById("pi5-hole-blocked"),
+    pi5HoleNote: document.getElementById("pi5-hole-note"),
+    pi5Devices: document.getElementById("pi5-devices"),
+    pi5DevicesCount: document.getElementById("pi5-devices-count"),
     wxTemp: document.getElementById("wx-temp"),
     wxIcon: document.getElementById("wx-icon"),
     wxCondition: document.getElementById("wx-condition"),
@@ -3172,8 +3182,11 @@
     const pct = usage && Number.isFinite(usage.pct) ? usage.pct : null;
     if (pct === null) return { value: "–", detail: "nicht auslesbar", tone: "unknown" };
     const gb = (bytes) => PI5_NUM_FMT.format(bytes / GIB);
+    // A total of 10 GB and more without decimals ("11,7 / 16 GB"), so the
+    // detail fits beside a two-digit percentage.
+    const total = (bytes) => (bytes / GIB >= 10 ? PI5_INT_FMT.format(bytes / GIB) : gb(bytes));
     const detail = Number.isFinite(usage.used) && Number.isFinite(usage.total)
-      ? `${gb(usage.used)} von ${gb(usage.total)} GB`
+      ? `${gb(usage.used)} / ${total(usage.total)} GB`
       : "";
     return { value: `${pct} %`, detail, tone: pi5Tone(usage.level) };
   }
@@ -3265,8 +3278,85 @@
     const shown = rows.length > PI5_MAX_ROWS ? rows.slice(0, PI5_MAX_ROWS - 1) : rows;
     shown.forEach(({ container, status }) => list.append(pi5Row(container.name, status)));
     if (shown.length < rows.length) {
-      list.append(pi5Row(`+${rows.length - shown.length} weitere`, ["", ""], "pi5-row--quiet"));
+      // The cut row takes the worst tone it hides, so trouble never goes grey.
+      const hidden = rows.slice(shown.length).map((row) => row.status[1]);
+      const tone = hidden.includes("bad") ? "bad" : hidden.includes("warn") ? "warn" : "";
+      const label = `+${rows.length - shown.length} weitere`;
+      list.append(tone
+        ? pi5Row(label, [tone === "bad" ? "gestört" : "prüfen", tone])
+        : pi5Row(label, ["", ""], "pi5-row--quiet"));
     }
+  }
+
+  // ---- #25: Pi-hole ----
+  // Ring circumference for r = 64 — the radius lives in index.html
+  // (#pi5-hole-ring) too; change both. The arc is a dash of that length.
+  const PI5_RING_LENGTH = 2 * Math.PI * 64;
+  const PI5_IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+  const PI5_DASHED_IP = /^\d{1,3}(-\d{1,3}){3}$/;
+  const PI5_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i;
+
+  // "Forte.fritz.box" → "Forte". A name that is an address, a UUID or empty
+  // says nothing; the IP does. localhost is the pi5 itself.
+  function pi5DeviceName(device, host) {
+    const ip = device.ip || "";
+    const name = device.name || "";
+    if (!name || PI5_IPV4.test(name) || name.includes(":") || name.endsWith(".arpa")) {
+      return ip || name || "?";
+    }
+    if (name === "pi.hole") return host || "pi5";
+    const short = name.split(".")[0];
+    if (short === "localhost") return host || "pi5";
+    if (!short || PI5_UUID.test(short) || PI5_DASHED_IP.test(short)) return ip || short || "?";
+    return short;
+  }
+
+  function renderPi5Hole(hole, host) {
+    const card = nodes.pi5Hole;
+    const list = nodes.pi5Devices;
+    list.replaceChildren();
+    if (!hole) {
+      card.dataset.state = "down";
+      nodes.pi5DevicesCount.textContent = "";
+      list.append(pi5Row("keine Daten", ["", ""], "pi5-row--quiet"));
+      return;
+    }
+    card.dataset.state = "ok";
+    const fmt = (value) => (Number.isFinite(value) ? PI5_INT_FMT.format(value) : "–");
+    nodes.pi5HoleTotal.textContent = fmt(hole.total);
+    nodes.pi5HoleBlocked.textContent = fmt(hole.blocked);
+    const pct = Number.isFinite(hole.percent) ? hole.percent : null;
+    nodes.pi5HoleShare.textContent = pct === null ? "–" : `${PI5_NUM_FMT.format(pct)} %`;
+    const arc = pct === null ? 0 : (PI5_RING_LENGTH * pct) / 100;
+    nodes.pi5HoleRing.setAttribute("stroke-dasharray", `${arc.toFixed(1)} ${PI5_RING_LENGTH.toFixed(1)}`);
+    nodes.pi5HoleRing.style.visibility = arc > 0 ? "" : "hidden";
+
+    const note = {
+      enabled: ["letzte 24 Stunden", ""],
+      disabled: ["Blocking aus · letzte 24 Stunden", "warn"],
+      failed: ["Blocking gestört · letzte 24 Stunden", "bad"],
+    }[hole.blocking] || ["Blocking unbekannt · letzte 24 Stunden", "warn"];
+    setPi5Status(nodes.pi5HoleNote, note);
+
+    nodes.pi5DevicesCount.textContent = Number.isFinite(hole.clients) ? `${hole.clients} aktiv` : "";
+    const devices = (hole.top || []).slice(0, PI5_MAX_DEVICES);
+    if (!devices.length) {
+      list.append(pi5Row("keine Anfragen", ["", ""], "pi5-row--quiet"));
+      return;
+    }
+    const counts = devices.map((device) => (Number.isFinite(device.count) ? device.count : 0));
+    const top = Math.max(0, ...counts);
+    devices.forEach((device, index) => {
+      const row = pi5Row(pi5DeviceName(device, host), [fmt(device.count), ""], "pi5-row--device");
+      // No bar for an unknown or zero count — a sliver would claim a share.
+      if (top > 0 && counts[index] > 0) {
+        const bar = document.createElement("span");
+        bar.className = "pi5-row__bar";
+        bar.style.width = `${Math.max(1, Math.round((counts[index] / top) * 100))}%`;
+        row.append(bar);
+      }
+      list.append(row);
+    });
   }
 
   // What the screen shows for the current result: stale data older than the
@@ -3352,6 +3442,7 @@
     setPi5Status(nodes.pi5Backup, pi5RunStatus(data.backup));
     setPi5Status(nodes.pi5Update, pi5RunStatus(data.update));
     renderPi5Containers(data.containers);
+    renderPi5Hole(data.pihole, data.host);
   }
 
   async function loadPi5Status() {

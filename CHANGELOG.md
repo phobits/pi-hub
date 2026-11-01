@@ -11,6 +11,36 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-01
+
+### Hinzugefügt
+
+- pi5-Screen mit Pi-hole ([#25](https://github.com/phobits/pi-hub/issues/25)):
+  DNS-Anfragen und davon blockiert der letzten 24 Stunden, der Anteil als
+  Ring (einziger Farbakzent des Screens), Blocking an/aus und die sechs
+  Geräte mit den meisten Anfragen samt Balken. Die Werte liefert `pistatus`
+  auf dem pi5 über `docker exec pihole pihole api`; auf dem Zero liegt kein
+  Passwort. Antwortet Pi-hole nicht, steht das rot in seiner Karte, der Rest
+  des Screens bleibt.
+
+### Geändert
+
+- Der pi5-Screen ist nach Thema in zwei Spalten mit Karten gegliedert: links
+  Pi-hole und Geräte, rechts die vier Werte der Maschine sowie Dienste und
+  Container. Die untere Hälfte ist nicht mehr leer.
+- Container: höchstens vier Zeilen. „+N weitere“ nimmt die schlimmste Farbe
+  der versteckten Zeilen an.
+- Arbeitsspeicher und SD-Karte zeigen die Gesamtgröße ab 10 GB ohne
+  Nachkommastelle („11,7 / 16 GB“).
+- `scripts/screenshot-states.py` kann mit `--only PREFIX` einzelne Szenarien
+  rendern und hat neue pi5-Zustände.
+
+### Sicherheit
+
+- Port 8787 auf dem pi5 antwortet nur noch dem pi-hub (`192.168.178.22`) und
+  localhost, weil die Antwort jetzt Pi-holes Geräteliste enthält (Repo
+  `pi5-config`).
+
 ## [0.15.0] - 2026-11-01
 
 ### Hinzugefügt

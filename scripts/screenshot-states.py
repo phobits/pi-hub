@@ -7,7 +7,9 @@ regressions before a deploy, then look at the device.
 
 Usage:
     python -m smart_display.local_server &      # demo server on :8090
-    python scripts/screenshot-states.py OUT_DIR [--url http://127.0.0.1:8090/]
+    python scripts/screenshot-states.py OUT_DIR [--url http://127.0.0.1:8090/] [--only PREFIX]
+
+``--only pi5`` renders just the scenarios whose name starts with ``pi5``.
 
 Needs: pip install playwright, plus a Chromium Playwright can find (set
 CHROME_BIN to a chrome/chromium executable to skip the download).
@@ -313,7 +315,29 @@ def _pi5_answer(variant: str) -> dict:
             {"name": "travelog-travelog-1", "state": "exited", "health": "none"},
             *[{"name": f"svc-{i}", "state": "running", "health": "none"} for i in range(8)],
         ],
+        "pihole": {
+            "blocking": "failed", "total": 1_204_331, "blocked": 401_920, "percent": 33.4, "clients": 27,
+            "top": [
+                {"name": "ebe63ef5-f980-67f3-0866-b6e2899fa7a2.fritz.box", "ip": "192.168.178.26", "count": 610_204},
+                {"name": "Kathis-sehr-langer-Laptop-Name-AEC.fritz.box", "ip": "192.168.178.12", "count": 300_118},
+                {"name": "", "ip": "fd00::1a2b:3c4d", "count": 120_000},
+                {"name": "localhost", "ip": "127.0.0.1", "count": 9_000},
+                {"name": "Switch.fritz.box", "ip": "192.168.178.21", "count": 27},
+            ],
+        },
     }
+    calm = {
+        **data, "temp_c": 46.6, "temp_level": "ok", "fan_rpm": 0, "throttled": "0x0", "throttled_level": "ok",
+        "ram": {"used": 542_113_792, "total": 17_006_116_864, "pct": 3, "level": "ok"},
+        "disk": {"used": 6_347_919_360, "total": 62_256_185_344, "pct": 11, "level": "ok"},
+        "backup": {"state": "ok", "epoch": now - 3600, "result": None},
+        "containers": data["containers"][:1],
+    }
+    if variant == "pi5-hole-down":
+        return {"status": "ok", "updated_at": stamp, "message": "", "data": {**calm, "pihole": None}}
+    if variant == "pi5-blocking-off":
+        hole = {**data["pihole"], "blocking": "disabled", "percent": 0.4, "blocked": 4_800}
+        return {"status": "ok", "updated_at": stamp, "message": "", "data": {**calm, "pihole": hole}}
     if variant == "pi5-trouble":
         return {"status": "ok", "updated_at": stamp, "message": "", "data": data}
     if variant == "pi5-stale":
@@ -394,6 +418,10 @@ SCENARIOS = [
     ("pi5-trouble", "flip", False, None, ["pi5-trouble", "pi5"]),
     ("pi5-stale", "flip", False, None, ["pi5-stale", "pi5"]),
     ("pi5-error", "flip", False, None, ["pi5-error", "pi5"]),
+    # #25: Pi-hole silent / blocking off, and the screen at night.
+    ("pi5-hole-down", "flip", False, None, ["pi5-hole-down", "pi5"]),
+    ("pi5-blocking-off", "flip", False, None, ["pi5-blocking-off", "pi5"]),
+    ("pi5-night", "flip", True, None, ["pi5"]),
 ]
 
 
@@ -429,14 +457,15 @@ def make_rewrite(mutate, *, idle_fast: bool = False, idle_never: bool = False):
     return rewrite
 
 
-async def run(url: str, out: Path) -> None:
+async def run(url: str, out: Path, only: str = "") -> None:
+    scenarios = [scenario for scenario in SCENARIOS if scenario[0].startswith(only)]
     out.mkdir(parents=True, exist_ok=True)
     launch: dict = {"args": ["--no-sandbox"]}
     if os.environ.get("CHROME_BIN"):
         launch["executable_path"] = os.environ["CHROME_BIN"]
     async with async_playwright() as p:
         browser = await p.chromium.launch(**launch)
-        for name, face, night, mutate, actions in SCENARIOS:
+        for name, face, night, mutate, actions in scenarios:
             context = await browser.new_context(
                 viewport={"width": 1024, "height": 600}, device_scale_factor=1
             )
@@ -460,7 +489,7 @@ async def run(url: str, out: Path) -> None:
                     lambda route, request: route.fulfill(json={"image": None}),
                 )
 
-            for variant in ("pi5-trouble", "pi5-stale", "pi5-error"):
+            for variant in ("pi5-trouble", "pi5-stale", "pi5-error", "pi5-hole-down", "pi5-blocking-off"):
                 if variant in actions:
                     answer = _pi5_answer(variant)
                     await page.route(
@@ -518,7 +547,7 @@ async def run(url: str, out: Path) -> None:
             await page.screenshot(path=str(out / f"{name}.png"))
             await context.close()
         await browser.close()
-    print(f"{len(SCENARIOS)} screenshots in {out}")
+    print(f"{len(scenarios)} screenshots in {out}")
 
 
 def main() -> None:
@@ -526,11 +555,23 @@ def main() -> None:
     if not args:
         print(__doc__)
         sys.exit(2)
-    out = Path(args[0])
-    url = "http://127.0.0.1:8090/"
-    if "--url" in args:
-        url = args[args.index("--url") + 1]
-    asyncio.run(run(url, out))
+    flags = {}
+    positional = []
+    rest = iter(args)
+    for arg in rest:
+        if arg in ("--url", "--only"):
+            flags[arg] = next(rest, None)
+            if flags[arg] is None:
+                sys.exit(f"{arg} needs a value")
+        else:
+            positional.append(arg)
+    if len(positional) != 1:
+        print(__doc__)
+        sys.exit(2)
+    out = Path(positional[0])
+    url = flags.get("--url") or "http://127.0.0.1:8090/"
+    only = flags.get("--only") or ""
+    asyncio.run(run(url, out, only))
 
 
 if __name__ == "__main__":
