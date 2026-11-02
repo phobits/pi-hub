@@ -309,9 +309,11 @@ def _pi5_answer(variant: str) -> dict:
         "disk": {"used": 57_900_000_000, "total": 62_256_185_344, "pct": 93, "level": "bad"},
         "backup": {"state": "failed", "epoch": now - 5 * 3600, "result": "exit-code"},
         "update": {"state": "unknown", "epoch": now - 6 * 86400, "result": None},
+        "travelog_backup": now - 3 * 86400,  # #29: "gestört · <Datum>" in its container row
         "containers": [
             {"name": "pihole", "state": "running", "health": "healthy"},
             {"name": "spotipi", "state": "running", "health": "unhealthy"},
+            {"name": "travelog-backup-1", "state": "running", "health": "unhealthy"},
             {"name": "travelog-travelog-1", "state": "exited", "health": "none"},
             *[{"name": f"svc-{i}", "state": "running", "health": "none"} for i in range(8)],
         ],

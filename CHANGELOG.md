@@ -11,6 +11,23 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-02
+
+### Geändert
+- pi5-Screen ([#29](https://github.com/phobits/pi-hub/issues/29)): Backup und
+  Update zeigen den Tag statt einer nackten Uhrzeit — „heute“ · „gestern“ ·
+  „30. Okt.“, bei einem Problem mit Wort davor („fehlgeschlagen · heute“).
+  „Heute“ ist der Tag des pi5 (`pi5NowMs`), nie die Uhr des Zero; der Anker
+  wandert bei veralteten Antworten nicht mehr mit (betraf auch „läuft seit …“).
+- Die Zeile des Travelog-Backup-Containers zeigt den Tag der neuesten
+  Sicherung (`travelog_backup` aus `pistatus`) statt „läuft“, bei `unhealthy`
+  „gestört · <Tag>“. Ohne das Feld (älteres `pistatus`) bleibt „läuft“.
+- Stromversorgung in Worten statt „ok“: „stabil“, „Unterspannung“,
+  „gedrosselt · Hitze“, „gedrosselt“, „… seit Start“; die Farbe kommt weiter
+  aus `throttled_level` (`pistatus` meldet nur-seit-Boot jetzt als `warn`).
+- `scripts/screenshot-states.py`: das Szenario `pi5-trouble` hat einen
+  gestörten Travelog-Backup-Container.
+
 ## [0.18.0] - 2026-11-02
 
 ### Geändert

@@ -59,6 +59,7 @@ DEMO_STATUS: dict[str, Any] = {
     "disk": {"used": 6_347_763_712, "total": 62_256_185_344, "pct": 11, "level": "ok"},
     "backup": {"state": "ok", "epoch": None, "result": None},
     "update": {"state": "unknown", "epoch": None, "result": None},
+    "travelog_backup": None,
     "pihole": {
         "blocking": "enabled",
         "total": 71_509,
@@ -187,6 +188,8 @@ def normalize_status(payload: Any) -> dict[str, Any] | None:
         "disk": _usage(payload.get("disk")),
         "backup": _run(payload.get("backup")),
         "update": _run(payload.get("update")),
+        # #29: newest travelog backup (file mtime); None = none found or an old pistatus
+        "travelog_backup": _int(payload.get("travelog_backup")),
         "pihole": _pihole(payload.get("pihole")),
         "containers": containers,
     }
@@ -197,6 +200,7 @@ def _demo_status(now: datetime) -> dict[str, Any]:
     data = {**DEMO_STATUS, "now": epoch, "boot": epoch - 19 * 60}
     data["backup"] = {"state": "ok", "epoch": epoch - 3 * 3600, "result": None}
     data["update"] = {"state": "unknown", "epoch": epoch - 6 * 86400, "result": None}
+    data["travelog_backup"] = epoch - 4 * 3600
     return data
 
 

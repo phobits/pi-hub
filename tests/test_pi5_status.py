@@ -76,6 +76,18 @@ class NormalizeStatusTest(unittest.TestCase):
         self.assertEqual(data["backup"], {"state": "unknown", "epoch": None, "result": None})
         self.assertEqual(data["containers"], [{"name": "x", "state": "unknown", "health": "none"}])
 
+    def test_travelog_backup(self) -> None:
+        # #29: an epoch passes through; missing (old pistatus), null or garbage is None
+        self.assertEqual(
+            normalize_status({**PISTATUS, "travelog_backup": 1793586793})["travelog_backup"],
+            1793586793,
+        )
+        for value in (None, "gestern", -1, True):
+            self.assertIsNone(
+                normalize_status({**PISTATUS, "travelog_backup": value})["travelog_backup"], value
+            )
+        self.assertIsNone(normalize_status(PISTATUS)["travelog_backup"])
+
     def test_docker_silent_is_not_no_containers(self) -> None:
         self.assertIsNone(normalize_status({**PISTATUS, "containers": None})["containers"])
         self.assertEqual(normalize_status({**PISTATUS, "containers": []})["containers"], [])

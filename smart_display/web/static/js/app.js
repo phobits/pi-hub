@@ -18,6 +18,9 @@
   let pi5RequestInFlight = false;
   let pi5Result = null;
   let pi5ResultAt = 0;
+  // #29: when the pi5's `now` was first seen. A stale answer repeats the old
+  // `now`, so the anchor must not move with every poll (pi5ResultAt does).
+  let pi5NowAnchor = { now: null, at: 0 };
   let pi5RenderedKey = "";
   // #27: departures under the agenda, polled only while the home screen is
   // visible inside the configured window.
@@ -3197,17 +3200,40 @@
     return "";
   }
 
-  function pi5Stamp(epoch) {
-    return Number.isFinite(epoch) ? formatStamp(new Date(epoch * 1000).toISOString()) : "";
+  // #29: the day a pi5 job last ran — "heute" · "gestern" · "30. Okt." ·
+  // "30. Dez. 2025", no time: for a daily backup and a weekly update only
+  // *whether* it ran matters. "Today" is the pi5's day (its `now` plus the
+  // time since the fetch, as in pi5Uptime), not the Zero's clock, which is
+  // wrong after a power cut until NTP. Calendar days in TIMEZONE, as in
+  // formatStamp — which stays as it is: "Stand …" elsewhere needs the time.
+  function pi5Day(epoch, now) {
+    const nowMs = pi5NowMs(now);
+    if (!Number.isFinite(epoch) || !Number.isFinite(nowMs)) return "";
+    const day = SECTION_DATE_FMT.format(new Date(epoch * 1000));
+    const today = SECTION_DATE_FMT.format(new Date(nowMs));
+    // A stamp just past midnight while the pi5's last `now` was before it.
+    if (day >= today) return "heute";
+    if (day === addDaysIso(today, -1)) return "gestern";
+    return day.slice(0, 4) === today.slice(0, 4)
+      ? AGE_DATE_FMT.format(new Date(epoch * 1000))
+      : AGE_DATE_YEAR_FMT.format(new Date(epoch * 1000));
   }
 
   // Both stamps come from the pi5's own clock, so the Zero's clock (wrong
   // until NTP after a power cut) does not enter; the time since the fetch is
   // measured with performance.now().
+  // The pi5's clock now, in ms: its `now` plus the time since that `now` was
+  // first seen (pi5NowAnchor). NaN without one — never the Zero's clock.
+  function pi5NowMs(now) {
+    if (!Number.isFinite(now)) return NaN;
+    const at = now === pi5NowAnchor.now ? pi5NowAnchor.at : performance.now();
+    return now * 1000 + (performance.now() - at);
+  }
+
   function pi5Uptime(data) {
-    if (!Number.isFinite(data.boot) || !Number.isFinite(data.now)) return "";
-    const elapsed = (performance.now() - pi5ResultAt) / 1000;
-    const minutes = Math.floor((data.now - data.boot + elapsed) / 60);
+    const nowMs = pi5NowMs(data.now);
+    if (!Number.isFinite(data.boot) || !Number.isFinite(nowMs)) return "";
+    const minutes = Math.floor((nowMs / 1000 - data.boot) / 60);
     if (minutes < 0) return "";
     if (minutes < 60) return `${Math.max(1, minutes)} Min`;
     const hours = Math.floor(minutes / 60);
@@ -3229,8 +3255,8 @@
     return { value: `${pct} %`, detail, tone: pi5Tone(usage.level) };
   }
 
-  function pi5RunStatus(run) {
-    const stamp = pi5Stamp(run && run.epoch);
+  function pi5RunStatus(run, now) {
+    const stamp = pi5Day(run && run.epoch, now);
     const withStamp = (text) => (stamp ? `${text} · ${stamp}` : text);
     switch (run && run.state) {
       case "ok":
@@ -3246,6 +3272,28 @@
       default:
         return [withStamp("Ergebnis unbekannt"), "warn"];
     }
+  }
+
+  // #29: `vcgencmd get_throttled` as words. Bits 0–3 are now (under-voltage,
+  // frequency capped, throttled, soft temperature limit), 16–19 the same
+  // "since boot" — those stay set until the next reboot. Only the words come
+  // from the bits; the colour is `throttled_level` from pistatus (bad = a bit
+  // set now, warn = since boot only), as for every pi5 traffic light.
+  // Capping without any under-voltage (now or since boot) can only be heat;
+  // with it, the cause is open, so just "gedrosselt".
+  function pi5PowerStatus(throttled, level) {
+    const tone = { ok: "", warn: "warn", bad: "bad" }[level] ?? "warn";
+    const bits = typeof throttled === "string" && /^0x[0-9a-f]{1,8}$/i.test(throttled)
+      ? parseInt(throttled, 16)
+      : NaN;
+    if (!Number.isFinite(bits)) return ["nicht auslesbar", "warn"];
+    if (bits === 0) return ["stabil", tone];
+    if (bits & 0x1) return ["Unterspannung", tone];
+    if (bits & 0x8) return ["gedrosselt · Hitze", tone];
+    if (bits & 0x6) return [bits & 0x10000 ? "gedrosselt" : "gedrosselt · Hitze", tone];
+    if (bits & 0x10000) return ["Unterspannung seit Start", tone];
+    if (bits & 0xe0000) return ["gedrosselt seit Start", tone];
+    return [`Wert ${throttled}`, tone];
   }
 
   function pi5ContainerStatus(container) {
@@ -3297,7 +3345,12 @@
     return row;
   }
 
-  function renderPi5Containers(containers) {
+  // #29: the travelog backup container sleeps between runs, so it always
+  // "läuft" — its row shows the day of the newest backup instead (pistatus
+  // `travelog_backup`). Compose names it <project>-backup-<n>.
+  const PI5_TRAVELOG_BACKUP = /^travelog[-_]backup([-_]\d+)?$/;
+
+  function renderPi5Containers(containers, travelogBackup, now) {
     const list = nodes.pi5Containers;
     list.replaceChildren();
     if (!Array.isArray(containers)) {
@@ -3314,7 +3367,15 @@
       .map((container, index) => ({ container, index, status: pi5ContainerStatus(container) }))
       .sort((a, b) => rank[a.status[1]] - rank[b.status[1]] || a.index - b.index);
     const shown = rows.length > PI5_MAX_ROWS ? rows.slice(0, PI5_MAX_ROWS - 1) : rows;
-    shown.forEach(({ container, status }) => list.append(pi5Row(container.name, status)));
+    const backupDay = pi5Day(travelogBackup, now);
+    shown.forEach(({ container, status }) => {
+      let [text, tone] = status;
+      if (backupDay && PI5_TRAVELOG_BACKUP.test(container.name)) {
+        // Healthy: just the day. A problem keeps its word and colour, plus the day.
+        text = tone ? `${text} · ${backupDay}` : backupDay;
+      }
+      list.append(pi5Row(container.name, [text, tone]));
+    });
     if (shown.length < rows.length) {
       // The cut row takes the worst tone it hides, so trouble never goes grey.
       const hidden = rows.slice(shown.length).map((row) => row.status[1]);
@@ -3471,15 +3532,10 @@
     setPi5Metric(nodes.pi5Ram, nodes.pi5RamValue, nodes.pi5RamDetail, pi5Usage(data.ram));
     setPi5Metric(nodes.pi5Disk, nodes.pi5DiskValue, nodes.pi5DiskDetail, pi5Usage(data.disk));
 
-    const power = {
-      ok: ["ok", ""],
-      warn: ["Warnung · Netzteil/Kühlung prüfen", "warn"],
-      bad: ["gedrosselt · Netzteil/Kühlung prüfen", "bad"],
-    }[data.throttled_level] || ["nicht auslesbar", "warn"];
-    setPi5Status(nodes.pi5Power, power);
-    setPi5Status(nodes.pi5Backup, pi5RunStatus(data.backup));
-    setPi5Status(nodes.pi5Update, pi5RunStatus(data.update));
-    renderPi5Containers(data.containers);
+    setPi5Status(nodes.pi5Power, pi5PowerStatus(data.throttled, data.throttled_level));
+    setPi5Status(nodes.pi5Backup, pi5RunStatus(data.backup, data.now));
+    setPi5Status(nodes.pi5Update, pi5RunStatus(data.update, data.now));
+    renderPi5Containers(data.containers, data.travelog_backup, data.now);
     renderPi5Hole(data.pihole, data.host);
   }
 
@@ -3493,6 +3549,10 @@
       if (result && typeof result.status === "string") {
         pi5Result = result;
         pi5ResultAt = performance.now();
+        const now = result.data ? result.data.now : null;
+        if (Number.isFinite(now) && now !== pi5NowAnchor.now) {
+          pi5NowAnchor = { now, at: pi5ResultAt };
+        }
       } else {
         // The local backend did not answer — not the pi5. Keep what is on
         // screen with its age (pi5View drops it after PI5_STALE_MAX_MS) and
