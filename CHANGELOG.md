@@ -11,6 +11,20 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-02
+
+### Geändert
+- Abfahrten mit eigenem Fenster pro Linie ([#28](https://github.com/phobits/pi-hub/issues/28)):
+  ein `TRANSIT_STOPS`-Eintrag kann ein Fenster `@HH:MM-HH:MM` tragen, sonst
+  gilt `TRANSIT_WINDOW`. Außerhalb ihres Fensters ist die Zeile weg, für sie
+  geht keine Anfrage raus, und die Termine messen ihr Zeilenbudget neu. Ein
+  kaputtes `@`-Fenster verwirft nur diesen Eintrag. Auf dem Pi: die 46 ganztags
+  (05:00–23:59), die 70 nur 06:00–08:30 — an der Schiffswerft hält sie nur in
+  der Früh. Öffnet ein Fenster, fragt die Seite sofort und bei einer noch
+  veralteten Antwort einmal nach 5 s erneut.
+- `scripts/screenshot-states.py` öffnet die Fenster pro Haltestelle und hat
+  das Szenario `transit-one-row` (70 außerhalb ihres Fensters).
+
 ## [0.17.0] - 2026-11-02
 
 ### Hinzugefügt

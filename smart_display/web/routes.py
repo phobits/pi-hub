@@ -76,11 +76,14 @@ def _transit_ui(services: dict) -> dict | None:
     return provider.ui_config() if provider is not None else None
 
 
-def _transit_on(services: dict, now: datetime) -> bool:
-    """Whether the first frame already reserves the departure rows, so a cold
-    load inside the window does not shrink the agenda a moment later."""
+def _transit_open(services: dict, now: datetime) -> list[bool]:
+    """Per departure row, whether the first frame already shows it (#28: each
+    stop may have its own window), so a cold load inside a window does not
+    shrink the agenda a moment later. ``[]`` without departure rows."""
     provider = services.get("transit")
-    return bool(provider is not None and provider.enabled and provider.in_window(now))
+    if provider is None or not provider.enabled:
+        return []
+    return provider.open_stops(now)
 
 
 def _utcnow() -> datetime:
@@ -117,6 +120,7 @@ def create_blueprint() -> Blueprint:
             now_local.hour, now_local.minute
         )
         initial_analog = analog_hand_angles(now_local.hour, now_local.minute)
+        transit_open = _transit_open(services, now_local)
         # Pre-compute digit payloads so flip/lcd faces can SSR cleanly instead
         # of flashing all-off segments before JS takes over.
         time_digits = [
@@ -147,7 +151,8 @@ def create_blueprint() -> Blueprint:
             },
             initial_state=state,
             initial_night=initial_night,
-            initial_transit=_transit_on(services, now_local),
+            initial_transit=any(transit_open),
+            initial_transit_open=transit_open,
             initial_clock=initial_clock,
             qlocktwo_grid=QLOCKTWO_GRID,
             qlocktwo_active=initial_qlocktwo,

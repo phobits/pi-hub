@@ -8,7 +8,9 @@ window, and this provider reads the EFA departure monitor at most every
 background job would break the ``/api/state`` ETag every minute.
 
 The window is checked here too: outside it the answer is ``inactive`` and no
-request leaves the device, whatever the frontend thinks the time is.
+request leaves the device, whatever the frontend thinks the time is. Each stop
+may have its own window (#28, a line that only runs in the morning); a stop
+whose window is closed stays in its place as ``inactive`` and is not fetched.
 
 Every stop is fetched and judged on its own, so one failing stop keeps the
 other line on screen. Anything the EFA sends that does not parse is dropped,
@@ -68,6 +70,9 @@ class TransitProvider:
         self._lock = threading.Lock()
         self._last_result: dict[str, Any] | None = None
         self._last_result_at = float("-inf")
+        # Which stops were open for ``_last_result``: a window opening or
+        # closing must not be answered from the cache.
+        self._last_open: list[bool] = []
         # Per stop: (departures, monotonic time, ISO stamp) of the last good fetch.
         self._good: dict[int, tuple[list[dict[str, Any]], float, str]] = {}
         # Per stop: honours 429/5xx and Retry-After, like the weather providers.
@@ -85,44 +90,63 @@ class TransitProvider:
         if not self.enabled:
             return None
         transit = self._config.transit
-        return {
-            "stops": [{"line": s.line, "label": s.label} for s in self._stops()],
-            "days": list(transit.days),
-            "from": transit.window_from,
-            "to": transit.window_to,
-            "departures": transit.departures,
-        }
+        stops = []
+        for stop in self._stops():
+            start, end = self.stop_window(stop)
+            stops.append({"line": stop.line, "label": stop.label, "from": start, "to": end})
+        return {"stops": stops, "days": list(transit.days), "departures": transit.departures}
 
-    def in_window(self, now: datetime) -> bool:
-        transit = self._config.transit
+    def stop_window(self, stop: TransitStop) -> tuple[str, str]:
+        """The stop's own window, else the global one (#28)."""
+        if stop.window_from and stop.window_to:
+            return stop.window_from, stop.window_to
+        return self._config.transit.window_from, self._config.transit.window_to
+
+    def open_stops(self, now: datetime) -> list[bool]:
+        """Per stop (configured, or the demo ones), whether its window is open."""
         local = now.astimezone(self._zone)
-        if local.isoweekday() not in transit.days:
-            return False
-        start, end = parse_hhmm(transit.window_from), parse_hhmm(transit.window_to)
-        if start is None or end is None:
-            return False
-        return start <= local.hour * 60 + local.minute < end
+        if local.isoweekday() not in self._config.transit.days:
+            return [False for _ in self._stops()]
+        minute_of_day = local.hour * 60 + local.minute
+        flags = []
+        for stop in self._stops():
+            start_text, end_text = self.stop_window(stop)
+            start, end = parse_hhmm(start_text), parse_hhmm(end_text)
+            flags.append(start is not None and end is not None and start <= minute_of_day < end)
+        return flags
 
     def status(self) -> dict[str, Any]:
         if not self.enabled:
             return _envelope("disabled", None, None)
         now = self._utcnow()
-        if not self.in_window(now):
+        open_flags = self.open_stops(now)
+        if not any(open_flags):
             return _envelope("inactive", None, None)
         if not self._config.transit.stops:  # demo mode without real stops
-            return _envelope("ok", {"stops": _demo_stops(now, self._zone)}, _stamp(now))
+            stops = [
+                stop if is_open else _inactive_stop(stop)
+                for stop, is_open in zip(_demo_stops(now, self._zone), open_flags)
+            ]
+            return _envelope("ok", {"stops": stops}, _stamp(now))
 
         with self._lock:
             tick = self._monotonic()
-            if self._last_result is not None and tick - self._last_result_at < CACHE_TTL_SECONDS:
+            if (
+                self._last_result is not None
+                and open_flags == self._last_open
+                and tick - self._last_result_at < CACHE_TTL_SECONDS
+            ):
                 return self._last_result
             stops = [
                 self._stop_result(index, stop, now, tick)
-                for index, stop in enumerate(self._config.transit.stops)
+                if is_open
+                else _inactive_stop(_stop_base(stop))
+                for index, (stop, is_open) in enumerate(zip(self._config.transit.stops, open_flags))
             ]
             result = _envelope(_overall(stops), {"stops": stops}, _newest(stops))
             self._last_result = result
             self._last_result_at = tick
+            self._last_open = open_flags
             return result
 
     def _stops(self) -> list[TransitStop]:
@@ -133,7 +157,7 @@ class TransitProvider:
     def _stop_result(
         self, index: int, stop: TransitStop, now: datetime, tick: float
     ) -> dict[str, Any]:
-        base = {"line": stop.line, "label": stop.label, "walk_minutes": stop.walk_minutes}
+        base = _stop_base(stop)
         backoff = self._backoff[index]
         try:
             if not backoff.ready():
@@ -270,8 +294,18 @@ def _efa_time(value: Any, zone: ZoneInfo) -> datetime | None:
     return local.replace(tzinfo=zone)
 
 
+def _stop_base(stop: TransitStop) -> dict[str, Any]:
+    return {"line": stop.line, "label": stop.label, "walk_minutes": stop.walk_minutes}
+
+
+def _inactive_stop(base: dict[str, Any]) -> dict[str, Any]:
+    """A stop outside its own window: kept in its place, never fetched."""
+    return {**base, "status": "inactive", "updated_at": None, "departures": []}
+
+
 def _overall(stops: list[dict[str, Any]]) -> str:
-    statuses = {stop["status"] for stop in stops}
+    # Only open stops count; at least one is open whenever this runs.
+    statuses = {stop["status"] for stop in stops} - {"inactive"}
     if statuses == {"ok"}:
         return "ok"
     if "ok" in statuses or "stale" in statuses:

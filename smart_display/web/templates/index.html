@@ -158,12 +158,13 @@
             <ul class="agenda" id="calendar-list" aria-label="Termine"></ul>
 
             <!-- #27: next departures, only on the configured days inside the
-                 window (data-transit="on"). One fixed-height row per
-                 configured stop, always present while on, so the agenda above
-                 can budget against a height that never depends on the data. -->
+                 window (data-transit="on"). One fixed-height row per stop
+                 whose window is open (#28: a stop may have its own; the others
+                 are hidden), so the agenda above can budget against a height
+                 that never depends on the data. -->
             <div class="transit" id="transit" aria-label="Abfahrten">
               {% for stop in (ui_config.transit.stops if ui_config.transit else []) %}
-              <div class="transit__row">
+              <div class="transit__row"{% if not initial_transit_open[loop.index0] %} hidden{% endif %}>
                 <span class="transit__line">{{ stop.line }}</span>
                 <span class="transit__label">{{ stop.label }}</span>
                 <span class="transit__times">–</span>

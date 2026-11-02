@@ -120,6 +120,11 @@ class TransitStop:
     label: str
     # Departures sooner than this are left out — the bus one cannot reach.
     walk_minutes: int = 0
+    # #28: this stop's own window ("HH:MM", end exclusive). ``None`` means the
+    # global ``TransitConfig`` window — a line that only runs in the morning
+    # gets its own, so outside it its row is gone and nothing is fetched.
+    window_from: str | None = None
+    window_to: str | None = None
 
 
 @dataclass(slots=True)
@@ -377,8 +382,9 @@ def _bounded_int(value: Any, default: int, low: int, high: int) -> int:
 
 
 def _transit_stops(value: Any) -> list[TransitStop]:
-    """``"60501350:70:Schiffswerft,60500097:46:Hafenportal:3"`` (env) or a
-    list of ``{stop_id, line, label, walk_minutes}`` (YAML)."""
+    """``"60501350:70:Schiffswerft@06:00-08:30,60500097:46:Hafenportal:3"``
+    (env) or a list of ``{stop_id, line, label, walk_minutes, window}`` (YAML).
+    The ``@window`` is optional (#28); a garbled one drops only its stop."""
     if isinstance(value, str):
         entries: list[Any] = [part for part in value.split(",") if part.strip()]
     elif isinstance(value, list):
@@ -388,7 +394,13 @@ def _transit_stops(value: Any) -> list[TransitStop]:
     stops: list[TransitStop] = []
     for entry in entries:
         if isinstance(entry, str):
-            parts = [part.strip() for part in entry.split(":")]
+            # The window's own colons must not count as fields: split it off
+            # first. A second "@" is garbled, not a second window.
+            entry_text, at, window_text = entry.partition("@")
+            if "@" in window_text:
+                logger.warning("transit: ignoring stop %r", entry)
+                continue
+            parts = [part.strip() for part in entry_text.split(":")]
             if len(parts) not in (3, 4):
                 logger.warning("transit: ignoring stop %r (want id:line:label[:walk])", entry)
                 continue
@@ -397,6 +409,7 @@ def _transit_stops(value: Any) -> list[TransitStop]:
                 "line": parts[1],
                 "label": parts[2],
                 "walk_minutes": parts[3] if len(parts) == 4 else 0,
+                "window": window_text if at else None,
             }
         elif isinstance(entry, dict):
             raw = entry
@@ -407,10 +420,25 @@ def _transit_stops(value: Any) -> list[TransitStop]:
         line = str(raw.get("line") or "").strip()
         label = str(raw.get("label") or "").strip()
         walk = _bounded_int(raw.get("walk_minutes", 0), -1, 0, 60)
+        window: tuple[str, str] | None = None
+        if raw.get("window") is not None:
+            window = _transit_window(raw.get("window"))
+            if window is None:
+                logger.warning("transit: ignoring stop %r (window wants HH:MM-HH:MM)", entry)
+                continue
         if not (stop_id.isdigit() and line and label) or walk < 0:
             logger.warning("transit: ignoring stop %r", entry)
             continue
-        stops.append(TransitStop(stop_id=stop_id, line=line, label=label, walk_minutes=walk))
+        stops.append(
+            TransitStop(
+                stop_id=stop_id,
+                line=line,
+                label=label,
+                walk_minutes=walk,
+                window_from=window[0] if window else None,
+                window_to=window[1] if window else None,
+            )
+        )
     return stops
 
 

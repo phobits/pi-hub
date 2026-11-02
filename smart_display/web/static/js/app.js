@@ -25,6 +25,9 @@
   let transitRequestInFlight = false;
   let transitResult = null;
   let transitRenderedKey = "";
+  // #28: one quick re-ask per window opening, see loadTransit.
+  let transitRetryTimer = null;
+  let transitRetryArmed = false;
   let suppressClickUntil = 0;
   const SCREEN_TRANSITION_MS = 220;
   const QUEUE_REFRESH_MS = 30_000;
@@ -129,7 +132,8 @@
 
   // #27: departure window. The backend checks it too and fetches nothing
   // outside it; this copy only decides whether the rows show and whether to
-  // ask at all. Days are ISO (1 = Monday), the bounds "HH:MM" in TIMEZONE.
+  // ask at all. Days are ISO (1 = Monday), the bounds "HH:MM" in TIMEZONE,
+  // per stop (#28: a line that only runs in the morning has its own).
   const TRANSIT =
     config.transit && Array.isArray(config.transit.stops) && config.transit.stops.length
       ? config.transit
@@ -139,6 +143,7 @@
   // Fewer than this are never dropped for width; the stop name ellipsizes.
   const TRANSIT_MIN_SHOWN = 2;
   const TRANSIT_REFRESH_MS = 30_000;
+  const TRANSIT_RETRY_MS = 5_000;
   // Same cap as the backend's STALE_MAX_AGE_SECONDS: after that a timetable
   // is a guess, and the row says "nicht verfügbar".
   const TRANSIT_STALE_MAX_MS = 10 * 60 * 1000;
@@ -3527,28 +3532,51 @@
   }
 
   // ---- #27: departures --------------------------------------------------------
-  // Two rows under the agenda on the configured days inside the window: line,
-  // stop, the next departures as "6′ · 26′ · 49′" (from 60 min on the clock
-  // time). The minute tick only recomputes the countdowns from the absolute
-  // times it already has; /api/transit is asked every 30 s, and only while the
-  // home screen is what one sees.
-  function transitWindowActive() {
-    if (!TRANSIT) return false;
-    if (!TRANSIT_DAYS.has(ISO_WEEKDAYS[ZONE_WEEKDAY_FMT.format(new Date())])) return false;
-    const start = parseHhmm(TRANSIT.from);
-    const end = parseHhmm(TRANSIT.to);
-    if (start === null || end === null) return false;
+  // One row per stop under the agenda on the configured days, each inside its
+  // own window: line, stop, the next departures as "6′ · 26′ · 49′" (from
+  // 60 min on the clock time). The minute tick only recomputes the countdowns
+  // from the absolute times it already has; /api/transit is asked every 30 s,
+  // and only while the home screen is what one sees.
+  function transitOpenStops() {
+    if (!TRANSIT) return [];
+    if (!TRANSIT_DAYS.has(ISO_WEEKDAYS[ZONE_WEEKDAY_FMT.format(new Date())])) {
+      return TRANSIT.stops.map(() => false);
+    }
     const { hour, minute } = currentHourMinute();
     const minuteOfDay = hour * 60 + minute;
-    return minuteOfDay >= start && minuteOfDay < end;
+    return TRANSIT.stops.map((stop) => {
+      const start = parseHhmm(stop.from);
+      const end = parseHhmm(stop.to);
+      return start !== null && end !== null && minuteOfDay >= start && minuteOfDay < end;
+    });
+  }
+
+  function transitWindowActive() {
+    return transitOpenStops().some(Boolean);
   }
 
   function syncTransit() {
     if (!TRANSIT || !nodes.transit || !nodes.cardsColumn) return;
-    const on = transitWindowActive();
+    const open = transitOpenStops();
+    const on = open.some(Boolean);
     const value = on ? "on" : "off";
+    let changed = false;
+    let opened = false;
     if (nodes.cardsColumn.dataset.transit !== value) {
       nodes.cardsColumn.dataset.transit = value;
+      changed = true;
+    }
+    const rows = nodes.transit.querySelectorAll(".transit__row");
+    open.forEach((isOpen, index) => {
+      const row = rows[index];
+      if (row && row.hidden === isOpen) {
+        row.hidden = !isOpen;
+        changed = true;
+        opened = opened || isOpen;
+        if (isOpen) transitRetryArmed = true;
+      }
+    });
+    if (changed) {
       // The agenda's row grew or shrank: it budgets its rows from the live
       // clientHeight, so it re-measures now instead of clipping.
       renderCalendar(state.calendar || {});
@@ -3565,8 +3593,12 @@
     } else if (!poll && transitTimer !== null) {
       window.clearInterval(transitTimer);
       transitTimer = null;
+    } else if (poll && opened) {
+      // A stop's window just opened: the last answer has it as "inactive",
+      // so ask now instead of showing "–" until the next 30 s tick.
+      loadTransit();
     }
-    renderTransit(false);
+    renderTransit(changed);
   }
 
   async function loadTransit() {
@@ -3583,6 +3615,7 @@
         // "inactive": the backend's clock says the window is over — show
         // nothing rather than a timetable it refused to fetch.
         transitResult = result.data && Array.isArray(result.data.stops) ? result : null;
+        retryOpenedStop();
       } else if (transitResult) {
         // The local backend did not answer, not the EFA: keep the times with
         // their age (capped by TRANSIT_STALE_MAX_MS in transitStopView).
@@ -3594,6 +3627,28 @@
     } finally {
       transitRequestInFlight = false;
     }
+  }
+
+  // A window that just opened can meet an answer from just before: one still
+  // in flight (loadTransit skips while one is out), or one the backend made a
+  // moment before its own minute turned. That answer has the stop "inactive",
+  // and the row would read "–" until the next 30 s poll — so ask once more,
+  // soon. Once per opening, so a lasting disagreement cannot loop.
+  function retryOpenedStop() {
+    if (!transitRetryArmed || transitRetryTimer !== null || !transitResult) return;
+    const open = transitOpenStops();
+    const behind = transitResult.data.stops.some(
+      (stop, index) => open[index] && stop && stop.status === "inactive"
+    );
+    if (!behind) {
+      transitRetryArmed = false;
+      return;
+    }
+    transitRetryArmed = false;
+    transitRetryTimer = window.setTimeout(() => {
+      transitRetryTimer = null;
+      if (transitTimer !== null) loadTransit();
+    }, TRANSIT_RETRY_MS);
   }
 
   // "6′" up to 59 minutes, "jetzt" in the departure minute, else "07:49".
@@ -3615,6 +3670,8 @@
 
   function transitStopView(stop, local, nowMs) {
     if (!transitResult) return { behind: "", times: [], note: "–" };
+    // Its window opened after this answer was fetched: the next one has it.
+    if (stop && stop.status === "inactive") return { behind: "", times: [], note: "–" };
     if (!stop || stop.status === "error") return { behind: "", times: [], note: "nicht verfügbar" };
     const behindData = Boolean(local) || stop.status === "stale";
     const updatedMs = parseIsoMs(stop.updated_at);
@@ -3644,7 +3701,9 @@
     const rows = nodes.transit.querySelectorAll(".transit__row");
     views.forEach((view, index) => {
       const row = rows[index];
-      if (!row) return;
+      // A hidden row has no width to fit; syncTransit forces a render when
+      // it shows again.
+      if (!row || row.hidden) return;
       const label = row.querySelector(".transit__label");
       const times = row.querySelector(".transit__times");
       label.textContent = view.behind || TRANSIT.stops[index].label;

@@ -820,9 +820,9 @@ body[data-watch-face="analog"] .weather__day-min {
 }
 
 /* #27: departures between agenda and music, only inside the window. The row
-   is `auto`, but its content is not: one 34 px row per configured stop, always
-   present while on and updated in place, so the agenda's measured height
-   never depends on departure data. */
+   is `auto`, but its content is not: one 34 px row per stop whose window is
+   open (#28), updated in place, so the agenda's measured height never depends
+   on departure data — only on which windows are open. */
 .side[data-transit="on"] {
   grid-template-rows: 36px minmax(0, 1fr) auto var(--music-h, 60px);
 }
@@ -1035,6 +1035,12 @@ body[data-watch-face="analog"] .weather__day-min {
   height: 34px;
   padding: 0 2px;
   min-width: 0;
+}
+
+/* #28: a stop outside its own window. `display: flex` above would beat the
+   browser's own [hidden] rule. */
+.transit__row[hidden] {
+  display: none;
 }
 
 .transit__line {

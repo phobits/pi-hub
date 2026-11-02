@@ -181,7 +181,7 @@ class TransitProviderTest(unittest.TestCase):
                 })
         self.assertEqual(self.http.calls, [])
         self.clock.set_wall(vienna(2026, 11, 3, 6, 0).astimezone(timezone.utc))
-        self.assertTrue(provider.in_window(self.clock.now()))
+        self.assertTrue(any(provider.open_stops(self.clock.now())))
 
     def test_requests_within_the_cache_share_one_fetch(self) -> None:
         self._answer_both()
@@ -300,28 +300,90 @@ class TransitProviderTest(unittest.TestCase):
         self.assertEqual(self.http.calls, [])
 
     def test_ui_config(self) -> None:
-        self.assertEqual(self._provider().ui_config(), {
-            "stops": [{"line": "70", "label": "Schiffswerft"}, {"line": "46", "label": "Hafenportal"}],
+        stops = [replace(STOPS[0], window_from="06:00", window_to="08:30"), STOPS[1]]
+        config = replace(self.config, transit=TransitConfig(stops=stops))
+        self.assertEqual(self._provider(config).ui_config(), {
+            "stops": [
+                {"line": "70", "label": "Schiffswerft", "from": "06:00", "to": "08:30"},
+                {"line": "46", "label": "Hafenportal", "from": "06:00", "to": "10:00"},
+            ],
             "days": [1, 2, 3, 4, 5],
-            "from": "06:00",
-            "to": "10:00",
             "departures": 3,
         })
+
+
+class PerStopWindowTest(unittest.TestCase):
+    """#28: the 70 runs only in the morning, the 46 all day."""
+
+    # Borrowed, not inherited: a subclass would re-run every test above with
+    # this config.
+    _provider = TransitProviderTest._provider
+    _answer_both = TransitProviderTest._answer_both
+
+    def setUp(self) -> None:
+        TransitProviderTest.setUp(self)
+        stops = [replace(STOPS[0], window_from="06:00", window_to="07:30"), STOPS[1]]
+        self.config = replace(self.config, transit=TransitConfig(stops=stops))
+
+    def test_a_closed_stop_is_kept_in_place_and_not_fetched(self) -> None:
+        self.clock.set_wall(vienna(2026, 11, 3, 8, 0).astimezone(timezone.utc))
+        self.http.add_response("GET", URL_46, body=HAFENPORTAL)
+        provider = self._provider()
+        self.assertEqual(provider.open_stops(self.clock.now()), [False, True])
+        self.assertTrue(any(provider.open_stops(self.clock.now())))
+        result = provider.status()
+        self.assertEqual(result["status"], "ok")
+        first, second = result["data"]["stops"]
+        self.assertEqual(first, {
+            "line": "70", "label": "Schiffswerft", "walk_minutes": 0,
+            "status": "inactive", "updated_at": None, "departures": [],
+        })
+        self.assertEqual((second["status"], times(second["departures"])), ("ok", ["08:12", "08:27"]))
+        self.assertEqual([call.url for call in self.http.calls], [URL_46])
+
+    def test_a_window_closing_is_not_answered_from_the_cache(self) -> None:
+        self.clock.set_wall(vienna(2026, 11, 3, 7, 29, 50).astimezone(timezone.utc))
+        self._answer_both()
+        provider = self._provider()
+        self.assertEqual(provider.status()["data"]["stops"][0]["status"], "ok")
+        self.clock.advance(15)  # 07:30:05, well inside CACHE_TTL_SECONDS
+        stops = provider.status()["data"]["stops"]
+        self.assertEqual([s["status"] for s in stops], ["inactive", "ok"])
+        self.assertEqual([call.url for call in self.http.calls], [URL_70, URL_46, URL_46])
+
+    def test_all_windows_closed_is_inactive(self) -> None:
+        self.clock.set_wall(vienna(2026, 11, 3, 10, 0).astimezone(timezone.utc))
+        provider = self._provider()
+        self.assertEqual(provider.open_stops(self.clock.now()), [False, False])
+        self.assertEqual(provider.status()["status"], "inactive")
+        self.assertEqual(self.http.calls, [])
+
+    def test_a_failure_of_the_only_open_stop_is_its_own(self) -> None:
+        self.clock.set_wall(vienna(2026, 11, 3, 8, 0).astimezone(timezone.utc))
+        self.http.add_error("GET", URL_46, HttpError("timed out"))
+        result = self._provider().status()
+        self.assertEqual(result["status"], "error")
+        self.assertEqual([s["status"] for s in result["data"]["stops"]], ["inactive", "error"])
+
+    def test_days_still_apply_to_every_stop(self) -> None:
+        self.clock.set_wall(vienna(2026, 11, 7, 7, 0).astimezone(timezone.utc))  # Saturday
+        self.assertEqual(self._provider().open_stops(self.clock.now()), [False, False])
 
 
 class _StubTransit:
     enabled = True
 
-    def __init__(self, in_window: bool = True) -> None:
+    def __init__(self, open_stops: list[bool] | None = None) -> None:
         self.calls = 0
-        self._in_window = in_window
+        self._open = [True] if open_stops is None else open_stops
 
-    def in_window(self, now) -> bool:
-        return self._in_window
+    def open_stops(self, now) -> list[bool]:
+        return list(self._open)
 
     def ui_config(self):
-        return {"stops": [{"line": "70", "label": "Schiffswerft"}], "days": [1, 2, 3, 4, 5],
-                "from": "06:00", "to": "10:00", "departures": 3}
+        stops = [{"line": "70", "label": "Schiffswerft", "from": "06:00", "to": "08:30"},
+                 {"line": "46", "label": "Hafenportal", "from": "05:00", "to": "23:59"}]
+        return {"stops": stops[: len(self._open)], "days": [1, 2, 3, 4, 5], "departures": 3}
 
     def status(self):
         self.calls += 1
@@ -355,10 +417,12 @@ class TransitRouteTest(unittest.TestCase):
         self.assertEqual(response.get_json()["status"], "disabled")
 
     def test_page_renders_the_rows_and_reserves_them_inside_the_window(self) -> None:
-        for services, rows, flag in (
-            ({}, 0, "off"),
-            ({"transit": _StubTransit(in_window=False)}, 1, "off"),
-            ({"transit": _StubTransit(in_window=True)}, 1, "on"),
+        for services, rows, hidden, flag in (
+            ({}, 0, 0, "off"),
+            ({"transit": _StubTransit([False])}, 1, 1, "off"),
+            ({"transit": _StubTransit([True])}, 1, 0, "on"),
+            # #28: the 70 outside its own window, the 46 inside the global one.
+            ({"transit": _StubTransit([False, True])}, 2, 1, "on"),
         ):
             with self.subTest(services=services, flag=flag):
                 tmp = tempfile.TemporaryDirectory()
@@ -368,6 +432,7 @@ class TransitRouteTest(unittest.TestCase):
                 html = app.test_client().get("/").get_data(as_text=True)
                 self.assertIn(f'data-transit="{flag}"', html)
                 self.assertEqual(html.count('class="transit__row"'), rows)
+                self.assertEqual(html.count('class="transit__row" hidden'), hidden)
                 self.assertIn('id="transit"', html)
 
 
@@ -397,6 +462,40 @@ class TransitConfigTest(unittest.TestCase):
         self.assertEqual((config.window_from, config.window_to), ("06:30", "09:45"))
         self.assertEqual(config.days, [1, 2, 3, 4, 6])
         self.assertEqual(config.departures, 2)
+
+    def test_a_stop_may_have_its_own_window(self) -> None:
+        config = self._load({
+            "TRANSIT_STOPS": "60501350:70:Schiffswerft@6:00-8:30,60500097:46:Hafenportal:3",
+            "TRANSIT_WINDOW": "05:00-23:59",
+        })
+        self.assertEqual(config.stops, [
+            TransitStop("60501350", "70", "Schiffswerft", 0, "06:00", "08:30"),
+            TransitStop("60500097", "46", "Hafenportal", 3, None, None),
+        ])
+        self.assertEqual((config.window_from, config.window_to), ("05:00", "23:59"))
+        walk_and_window = self._load({"TRANSIT_STOPS": "60501350:70:Schiffswerft:2@06:00-08:30"})
+        self.assertEqual(walk_and_window.stops, [
+            TransitStop("60501350", "70", "Schiffswerft", 2, "06:00", "08:30"),
+        ])
+
+    def test_a_garbled_own_window_drops_only_its_stop(self) -> None:
+        for window in ("@08:30-06:00", "@morgens", "@", "@06:00-08:30@09:00-10:00", "@06:00-24:00"):
+            with self.subTest(window=window):
+                config = self._load({
+                    "TRANSIT_STOPS": f"60501350:70:Schiffswerft{window},60500097:46:Hafenportal",
+                })
+                self.assertEqual(config.stops, [TransitStop("60500097", "46", "Hafenportal")])
+
+    def test_yaml_stop_with_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config").mkdir()
+            (root / "config" / "default.yaml").write_text(json.dumps({"transit": {"stops": [
+                {"stop_id": "60501350", "line": "70", "label": "Schiffswerft", "window": "06:00-08:30"},
+                {"stop_id": "60500097", "line": "46", "label": "Hafenportal"},
+            ]}}), encoding="utf-8")
+            stops = load_config(env={}, dotenv_path=None, root_dir=root).transit.stops
+        self.assertEqual([(s.window_from, s.window_to) for s in stops], [("06:00", "08:30"), (None, None)])
 
     def test_garbled_stops_are_dropped(self) -> None:
         config = self._load({"TRANSIT_STOPS": "abc:70:X,60501350:70,60501350::X,60501350:70:X:lots,60500097:46:Hafenportal"})

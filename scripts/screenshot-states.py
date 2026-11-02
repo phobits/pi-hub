@@ -347,8 +347,20 @@ def _pi5_answer(variant: str) -> dict:
 
 # #27: departures. The window is forced open in the bootstrap config so these
 # scenarios do not depend on the hour they are rendered at; the answer of
-# /api/transit is replaced like the pi5's.
-TRANSIT_ALWAYS = {"days": [1, 2, 3, 4, 5, 6, 7], "from": "00:00", "to": "23:59"}
+# /api/transit is replaced like the pi5's. Since #28 every stop has its own
+# window, so each one is forced open — except the first in "transit-one-row",
+# whose window is forced shut (the 70 outside its morning).
+TRANSIT_ALWAYS = {"from": "00:00", "to": "23:59"}
+
+
+def _transit_never(timezone_name: str) -> dict:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # A one-hour window twelve hours away in the app's TIMEZONE (the page
+    # judges windows there, not in the host's zone): shut whenever this renders.
+    hour = (datetime.now(ZoneInfo(timezone_name)).hour + 12) % 24
+    return {"from": f"{hour:02d}:00", "to": f"{hour:02d}:59"}
 
 
 def _transit_answer(variant: str) -> dict:
@@ -372,6 +384,13 @@ def _transit_answer(variant: str) -> dict:
     if variant == "transit-stale":
         stops = [stop("70", "Schiffswerft", [6, 26, 49], "stale"), stop("46", "Hafenportal", [12, 27, 42])]
         return {"status": "stale", "updated_at": stamp, "message": "", "data": {"stops": stops}}
+    if variant == "transit-one-row":
+        stops = [
+            {"line": "70", "label": "Schiffswerft", "walk_minutes": 0, "status": "inactive",
+             "updated_at": None, "departures": []},
+            stop("46", "Hafenportal", [12, 27, 42, 57]),
+        ]
+        return {"status": "ok", "updated_at": stamp, "message": "", "data": {"stops": stops}}
     if variant == "transit-error":
         stops = [stop("70", "Schiffswerft", [], "error"), stop("46", "Hafenportal", [], "ok")]
         return {"status": "stale", "updated_at": stamp, "message": "", "data": {"stops": stops}}
@@ -464,6 +483,8 @@ SCENARIOS = [
     ("transit-qlocktwo", "qlocktwo", False, None, ["transit"]),
     ("transit-stale", "flip", False, None, ["transit-stale", "transit"]),
     ("transit-error", "flip", False, None, ["transit-error", "transit"]),
+    # #28: the 70 outside its own window, the 46 alone.
+    ("transit-one-row", "flip", False, None, ["transit-one-row", "transit"]),
 ]
 
 
@@ -472,7 +493,12 @@ def identity(state: dict) -> dict:
 
 
 def make_rewrite(
-    mutate, *, idle_fast: bool = False, idle_never: bool = False, transit_open: bool = False
+    mutate,
+    *,
+    idle_fast: bool = False,
+    idle_never: bool = False,
+    transit_open: bool = False,
+    transit_first_shut: bool = False,
 ):
     """Route handler that applies ``mutate`` to the demo state, both in the
     bootstrap JSON of the page and in every ``/api/state`` poll. ``idle_fast``
@@ -495,7 +521,12 @@ def make_rewrite(
             if idle_never:
                 boot["config"]["idle_timeout_seconds"] = 10**6
             if transit_open and boot["config"].get("transit"):
-                boot["config"]["transit"].update(TRANSIT_ALWAYS)
+                transit = boot["config"]["transit"]
+                transit["days"] = [1, 2, 3, 4, 5, 6, 7]
+                for index, stop in enumerate(transit["stops"]):
+                    shut = transit_first_shut and index == 0
+                    zone = boot["config"].get("timezone") or "Europe/Vienna"
+                    stop.update(_transit_never(zone) if shut else TRANSIT_ALWAYS)
             return match.group(1) + json.dumps(boot) + match.group(3)
 
         await route.fulfill(response=response, body=BOOT_RE.sub(patch, body, count=1))
@@ -527,6 +558,7 @@ async def run(url: str, out: Path, only: str = "") -> None:
                     idle_fast="screensaver" in actions,
                     idle_never="local-lost" in actions,
                     transit_open="transit" in actions,
+                    transit_first_shut="transit-one-row" in actions,
                 )
                 await page.route("**/api/state", rewrite)
                 await page.route(url, rewrite)
