@@ -15,6 +15,7 @@ from smart_display.providers.caldav_provider import CalDAVProvider
 from smart_display.providers.lightroom_source import LightroomSourceProvider
 from smart_display.providers.mock_provider import MockProvider
 from smart_display.providers.pi5_status import Pi5StatusProvider
+from smart_display.providers.transit_efa import TransitProvider
 from smart_display.providers.spotify_provider import SpotifyProvider
 from smart_display.providers.weather_geosphere import (
     ClaefProvider,
@@ -77,6 +78,8 @@ def create_app(
         "spotify_provider": spotify_provider,
         # #24: read on demand by /api/pi5, no scheduler job
         "pi5_status": Pi5StatusProvider(app_config),
+        # #27: read on demand by /api/transit, only inside the departure window
+        "transit": TransitProvider(app_config),
         "timer_service": timer_service,
         "power_controller": power_controller,
         "kiosk_watchdog": kiosk_watchdog,

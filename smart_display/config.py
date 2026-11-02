@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from smart_display.night import parse_hhmm
 from smart_display.watch_faces import normalize_watch_face
 
 
@@ -13,6 +15,8 @@ try:
     import yaml  # type: ignore
 except ImportError:  # pragma: no cover
     yaml = None
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -107,6 +111,35 @@ class Pi5StatusConfig:
 
 
 @dataclass(slots=True)
+class TransitStop:
+    # #27: one line at one stop of the Linz AG EFA. ``stop_id`` is the EFA
+    # stop id (stopfinder ``stateless``), ``line`` the public line number as
+    # the departure monitor spells it, ``label`` what the panel shows.
+    stop_id: str
+    line: str
+    label: str
+    # Departures sooner than this are left out — the bus one cannot reach.
+    walk_minutes: int = 0
+
+
+@dataclass(slots=True)
+class TransitConfig:
+    # #27: departures under the agenda, only on ``days`` (ISO, 1 = Monday)
+    # between ``window_from`` (inclusive) and ``window_to`` (exclusive). No
+    # stops means no transit rows and no request, ever.
+    stops: list[TransitStop] = field(default_factory=list)
+    base_url: str = "https://www.linzag.at/static"
+    days: list[int] = field(default_factory=lambda: [1, 2, 3, 4, 5])
+    window_from: str = "06:00"
+    window_to: str = "10:00"
+    departures: int = 3
+    # HttpClient retries once on a timeout and the stops are read one after
+    # the other: an EFA outage holds a request (and the provider's lock) for
+    # 2 × stops × this. Capped at 5 s in ``_transit_config`` for that reason.
+    timeout_seconds: int = 4
+
+
+@dataclass(slots=True)
 class AppConfig:
     root_dir: Path
     app: AppSection
@@ -116,6 +149,7 @@ class AppConfig:
     screensaver: ScreensaverConfig
     refresh_intervals: RefreshIntervalsConfig
     pi5_status: Pi5StatusConfig = field(default_factory=Pi5StatusConfig)
+    transit: TransitConfig = field(default_factory=TransitConfig)
 
     @property
     def last_good_path(self) -> Path:
@@ -286,6 +320,7 @@ def load_config_from_mapping(
             ),
         ),
         pi5_status=_pi5_status_config(mapping.get("pi5_status") or {}),
+        transit=_transit_config(mapping.get("transit") or {}),
     )
 
 
@@ -301,6 +336,119 @@ def _pi5_status_config(section: dict[str, Any]) -> Pi5StatusConfig:
         url=str(section.get("url", "") or "").strip(),
         timeout_seconds=timeout if timeout > 0 else default.timeout_seconds,
     )
+
+
+def _transit_config(section: dict[str, Any]) -> TransitConfig:
+    """#27. Like the pi5 screen, an optional row must never keep the app from
+    starting: a garbled entry is dropped (and logged), a garbled window or
+    day list switches the rows off instead of guessing."""
+    default = TransitConfig()
+    stops = _transit_stops(section.get("stops"))
+    # An empty value ("TRANSIT_WINDOW=") means the default, as for every other
+    # key here; only a garbled one switches the rows off.
+    window = _transit_window(
+        section.get("window") or f"{default.window_from}-{default.window_to}"
+    )
+    days_value = section.get("days")
+    days = _transit_days(default.days if days_value in (None, "") else days_value)
+    if stops and (window is None or not days):
+        logger.warning("transit: window or days unparsable, departures stay off")
+        stops = []
+    window_from, window_to = window or (default.window_from, default.window_to)
+    return TransitConfig(
+        stops=stops,
+        base_url=str(section.get("base_url") or default.base_url).strip().rstrip("/"),
+        days=days or default.days,
+        window_from=window_from,
+        window_to=window_to,
+        departures=_bounded_int(section.get("departures"), default.departures, 1, 6),
+        timeout_seconds=_bounded_int(
+            section.get("timeout_seconds"), default.timeout_seconds, 1, 5
+        ),
+    )
+
+
+def _bounded_int(value: Any, default: int, low: int, high: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return number if low <= number <= high else default
+
+
+def _transit_stops(value: Any) -> list[TransitStop]:
+    """``"60501350:70:Schiffswerft,60500097:46:Hafenportal:3"`` (env) or a
+    list of ``{stop_id, line, label, walk_minutes}`` (YAML)."""
+    if isinstance(value, str):
+        entries: list[Any] = [part for part in value.split(",") if part.strip()]
+    elif isinstance(value, list):
+        entries = value
+    else:
+        return []
+    stops: list[TransitStop] = []
+    for entry in entries:
+        if isinstance(entry, str):
+            parts = [part.strip() for part in entry.split(":")]
+            if len(parts) not in (3, 4):
+                logger.warning("transit: ignoring stop %r (want id:line:label[:walk])", entry)
+                continue
+            raw = {
+                "stop_id": parts[0],
+                "line": parts[1],
+                "label": parts[2],
+                "walk_minutes": parts[3] if len(parts) == 4 else 0,
+            }
+        elif isinstance(entry, dict):
+            raw = entry
+        else:
+            logger.warning("transit: ignoring stop %r", entry)
+            continue
+        stop_id = str(raw.get("stop_id") or "").strip()
+        line = str(raw.get("line") or "").strip()
+        label = str(raw.get("label") or "").strip()
+        walk = _bounded_int(raw.get("walk_minutes", 0), -1, 0, 60)
+        if not (stop_id.isdigit() and line and label) or walk < 0:
+            logger.warning("transit: ignoring stop %r", entry)
+            continue
+        stops.append(TransitStop(stop_id=stop_id, line=line, label=label, walk_minutes=walk))
+    return stops
+
+
+def _transit_window(value: Any) -> tuple[str, str] | None:
+    """``"06:00-10:00"`` → ``("06:00", "10:00")``. Must not wrap midnight."""
+    text = str(value or "").strip()
+    if text.count("-") != 1:
+        return None
+    start_text, end_text = (part.strip() for part in text.split("-"))
+    start, end = parse_hhmm(start_text), parse_hhmm(end_text)
+    if start is None or end is None or start >= end:
+        return None
+    return f"{start // 60:02d}:{start % 60:02d}", f"{end // 60:02d}:{end % 60:02d}"
+
+
+def _transit_days(value: Any) -> list[int]:
+    """ISO weekdays: ``"1-5"``, ``"1,3,5"`` or ``[1, 2, 3]``. ``[]`` if any
+    part is garbled — half a day list would be a guess."""
+    if isinstance(value, list):
+        parts: list[str] = [str(item) for item in value]
+    else:
+        parts = [part for part in str(value or "").split(",") if part.strip()]
+    days: set[int] = set()
+    for part in parts:
+        part = part.strip()
+        if "-" in part:
+            low_text, _, high_text = part.partition("-")
+            if not (low_text.strip().isdigit() and high_text.strip().isdigit()):
+                return []
+            low, high = int(low_text), int(high_text)
+            if not 1 <= low <= high <= 7:
+                return []
+            days.update(range(low, high + 1))
+        elif part.isdigit() and 1 <= int(part) <= 7:
+            days.add(int(part))
+        else:
+            return []
+    return sorted(days)
 
 
 def _normalize_optional_str(value: Any) -> str | None:
@@ -418,6 +566,12 @@ def _apply_env_overrides(config: dict[str, Any], env: dict[str, str]) -> None:
         "REFRESH_WEATHER_WARNINGS_SECONDS": ("refresh_intervals", "weather_warnings_seconds"),
         "PI5_STATUS_URL": ("pi5_status", "url"),
         "PI5_STATUS_TIMEOUT_SECONDS": ("pi5_status", "timeout_seconds"),
+        "TRANSIT_STOPS": ("transit", "stops"),
+        "TRANSIT_WINDOW": ("transit", "window"),
+        "TRANSIT_DAYS": ("transit", "days"),
+        "TRANSIT_DEPARTURES": ("transit", "departures"),
+        "TRANSIT_BASE_URL": ("transit", "base_url"),
+        "TRANSIT_TIMEOUT_SECONDS": ("transit", "timeout_seconds"),
     }
 
     for env_key, path in mapping.items():

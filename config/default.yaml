@@ -64,5 +64,13 @@
   "pi5_status": {
     "url": "",
     "timeout_seconds": 2
+  },
+  "transit": {
+    "stops": [],
+    "window": "06:00-10:00",
+    "days": "1-5",
+    "departures": 3,
+    "base_url": "https://www.linzag.at/static",
+    "timeout_seconds": 4
   }
 }

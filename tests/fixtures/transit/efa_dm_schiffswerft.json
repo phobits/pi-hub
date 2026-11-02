@@ -1,0 +1,724 @@
+{
+ "parameters": [
+  {
+   "name": "serverID",
+   "value": "www.linzag.at"
+  },
+  {
+   "name": "requestID",
+   "value": "0"
+  },
+  {
+   "name": "sessionID",
+   "value": "0"
+  },
+  {
+   "name": "calcTime",
+   "value": "58.980"
+  },
+  {
+   "name": "serverTime",
+   "value": "2026-11-02T00:41:58"
+  },
+  {
+   "name": "logRequestId",
+   "value": "bc509db28b99539f"
+  }
+ ],
+ "dm": {
+  "input": {
+   "input": "60501350"
+  },
+  "points": {
+   "point": {
+    "usage": "dm",
+    "type": "stop",
+    "name": "Linz/Donau, Schiffswerft",
+    "stateless": "60501350",
+    "ref": {
+     "id": "60501350",
+     "gid": "at:44:41245",
+     "omc": "44001001",
+     "placeID": "4",
+     "place": "Linz/Donau",
+     "coords": "5448956.00,806434.00"
+    },
+    "infos": null
+   }
+  }
+ },
+ "departureList": [
+  {
+   "stopID": "60501350",
+   "x": "5448984",
+   "y": "806508",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "2",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "4",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "4"
+   },
+   "servingLine": {
+    "key": "7",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Fernheizkraftwerk",
+    "directionFrom": "Linz/Donau Chemiepark",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "R",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60502170",
+    "stateless": "esg:02027:E:R:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "6",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "6"
+   },
+   "servingLine": {
+    "key": "12",
+    "code": "3",
+    "number": "70",
+    "symbol": "70",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Stadtfriedhof",
+    "directionFrom": "Linz/Donau Schiffswerft",
+    "name": "Schnellbus",
+    "liErgRiProj": {
+     "line": "06070",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:70:"
+    },
+    "destID": "60501630",
+    "stateless": "esg:06070:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "14",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "14"
+   },
+   "servingLine": {
+    "key": "147",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Chemiepark",
+    "directionFrom": "Linz/Donau Fernheizkraftwerk",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60500740",
+    "stateless": "esg:02027:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448984",
+   "y": "806508",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "2",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "19",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "19"
+   },
+   "servingLine": {
+    "key": "8",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Fernheizkraftwerk",
+    "directionFrom": "Linz/Donau Chemiepark",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "R",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60502170",
+    "stateless": "esg:02027:E:R:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "20",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "20"
+   },
+   "servingLine": {
+    "key": "33",
+    "code": "3",
+    "number": "72",
+    "symbol": "72",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Hauptbahnhof",
+    "directionFrom": "Linz/Donau Schiffswerft",
+    "name": "Schnellbus",
+    "liErgRiProj": {
+     "line": "06072",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:72:"
+    },
+    "destID": "60501720",
+    "stateless": "esg:06072:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "26",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "26"
+   },
+   "servingLine": {
+    "key": "13",
+    "code": "3",
+    "number": "70",
+    "symbol": "70",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Stadtfriedhof",
+    "directionFrom": "Linz/Donau Schiffswerft",
+    "name": "Schnellbus",
+    "liErgRiProj": {
+     "line": "06070",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:70:"
+    },
+    "destID": "60501630",
+    "stateless": "esg:06070:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "29",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "29"
+   },
+   "servingLine": {
+    "key": "148",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Chemiepark",
+    "directionFrom": "Linz/Donau Fernheizkraftwerk",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60500740",
+    "stateless": "esg:02027:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448984",
+   "y": "806508",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "2",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "34",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "34"
+   },
+   "servingLine": {
+    "key": "9",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Fernheizkraftwerk",
+    "directionFrom": "Linz/Donau Chemiepark",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "R",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60502170",
+    "stateless": "esg:02027:E:R:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "44",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "44"
+   },
+   "servingLine": {
+    "key": "149",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Chemiepark",
+    "directionFrom": "Linz/Donau Fernheizkraftwerk",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60500740",
+    "stateless": "esg:02027:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448984",
+   "y": "806508",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "2",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "49",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "49"
+   },
+   "servingLine": {
+    "key": "10",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Fernheizkraftwerk",
+    "directionFrom": "Linz/Donau Chemiepark",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "R",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60502170",
+    "stateless": "esg:02027:E:R:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "49",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "49"
+   },
+   "servingLine": {
+    "key": "14",
+    "code": "3",
+    "number": "70",
+    "symbol": "70",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Europaplatz",
+    "directionFrom": "Linz/Donau Schiffswerft",
+    "name": "Schnellbus",
+    "liErgRiProj": {
+     "line": "06070",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:70:"
+    },
+    "destID": "60501300",
+    "stateless": "esg:06070:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "50",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "50"
+   },
+   "servingLine": {
+    "key": "34",
+    "code": "3",
+    "number": "72",
+    "symbol": "72",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Hauptbahnhof",
+    "directionFrom": "Linz/Donau Schiffswerft",
+    "name": "Schnellbus",
+    "liErgRiProj": {
+     "line": "06072",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:72:"
+    },
+    "destID": "60501720",
+    "stateless": "esg:06072:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448984",
+   "y": "806508",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "2",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "57",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "57"
+   },
+   "servingLine": {
+    "key": "113",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Fernheizkraftwerk",
+    "directionFrom": "Linz/Donau Hauptbahnhof",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "R",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60502170",
+    "stateless": "esg:02027:E:R:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60501350",
+   "x": "5448946",
+   "y": "806383",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "1",
+   "platformName": "",
+   "stopName": "Linz/Donau Schiffswerft",
+   "nameWO": "Schiffswerft",
+   "countdown": "59",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "59"
+   },
+   "servingLine": {
+    "key": "150",
+    "code": "3",
+    "number": "27",
+    "symbol": "27",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Chemiepark",
+    "directionFrom": "Linz/Donau Fernheizkraftwerk",
+    "name": "Autobus",
+    "liErgRiProj": {
+     "line": "02027",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:27:"
+    },
+    "destID": "60500740",
+    "stateless": "esg:02027:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  }
+ ]
+}

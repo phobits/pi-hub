@@ -345,6 +345,41 @@ def _pi5_answer(variant: str) -> dict:
     return {"status": "error", "updated_at": stamp, "message": "pi5 nicht erreichbar", "data": None}
 
 
+# #27: departures. The window is forced open in the bootstrap config so these
+# scenarios do not depend on the hour they are rendered at; the answer of
+# /api/transit is replaced like the pi5's.
+TRANSIT_ALWAYS = {"days": [1, 2, 3, 4, 5, 6, 7], "from": "00:00", "to": "23:59"}
+
+
+def _transit_answer(variant: str) -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    # Ten seconds back, not floored to the minute: the page renders a few
+    # seconds later, and "0" must still read "jetzt" and "26" "26′" then.
+    now = datetime.now(timezone.utc) - timedelta(seconds=10)
+    stamp = (now - timedelta(minutes=4)).isoformat(timespec="seconds")
+
+    def stop(line: str, label: str, offsets: list[int], status: str = "ok") -> dict:
+        return {
+            "line": line, "label": label, "walk_minutes": 0, "status": status,
+            "updated_at": stamp if status != "error" else None,
+            "departures": [
+                {"planned": (now + timedelta(minutes=m)).isoformat(), "expected": None, "direction": ""}
+                for m in offsets
+            ] if status != "error" else [],
+        }
+
+    if variant == "transit-stale":
+        stops = [stop("70", "Schiffswerft", [6, 26, 49], "stale"), stop("46", "Hafenportal", [12, 27, 42])]
+        return {"status": "stale", "updated_at": stamp, "message": "", "data": {"stops": stops}}
+    if variant == "transit-error":
+        stops = [stop("70", "Schiffswerft", [], "error"), stop("46", "Hafenportal", [], "ok")]
+        return {"status": "stale", "updated_at": stamp, "message": "", "data": {"stops": stops}}
+    # The widest case: a jetzt, two-digit minutes and a clock time.
+    stops = [stop("70", "Schiffswerft", [0, 26, 69, 89]), stop("46", "Hafenportal", [12, 27, 42, 57])]
+    return {"status": "ok", "updated_at": stamp, "message": "", "data": {"stops": stops}}
+
+
 def compose(*mutators):
     def apply(state: dict) -> dict:
         for mutator in mutators:
@@ -422,6 +457,13 @@ SCENARIOS = [
     ("pi5-hole-down", "flip", False, None, ["pi5-hole-down", "pi5"]),
     ("pi5-blocking-off", "flip", False, None, ["pi5-blocking-off", "pi5"]),
     ("pi5-night", "flip", True, None, ["pi5"]),
+    # #27: departures under the agenda (narrow column with the music bar,
+    # wide without it, the tall word clock, a stale and a failed stop).
+    ("transit", "flip", False, None, ["transit"]),
+    ("transit-hidden-music", "flip", False, spotify_hidden, ["transit"]),
+    ("transit-qlocktwo", "qlocktwo", False, None, ["transit"]),
+    ("transit-stale", "flip", False, None, ["transit-stale", "transit"]),
+    ("transit-error", "flip", False, None, ["transit-error", "transit"]),
 ]
 
 
@@ -429,7 +471,9 @@ def identity(state: dict) -> dict:
     return state
 
 
-def make_rewrite(mutate, *, idle_fast: bool = False, idle_never: bool = False):
+def make_rewrite(
+    mutate, *, idle_fast: bool = False, idle_never: bool = False, transit_open: bool = False
+):
     """Route handler that applies ``mutate`` to the demo state, both in the
     bootstrap JSON of the page and in every ``/api/state`` poll. ``idle_fast``
     drops the screensaver idle timeout to its 5 s floor; ``idle_never`` keeps
@@ -450,6 +494,8 @@ def make_rewrite(mutate, *, idle_fast: bool = False, idle_never: bool = False):
                 boot["config"]["idle_timeout_seconds"] = 1
             if idle_never:
                 boot["config"]["idle_timeout_seconds"] = 10**6
+            if transit_open and boot["config"].get("transit"):
+                boot["config"]["transit"].update(TRANSIT_ALWAYS)
             return match.group(1) + json.dumps(boot) + match.group(3)
 
         await route.fulfill(response=response, body=BOOT_RE.sub(patch, body, count=1))
@@ -475,11 +521,12 @@ async def run(url: str, out: Path, only: str = "") -> None:
             )
             page = await context.new_page()
 
-            if mutate is not None or "screensaver" in actions:
+            if mutate is not None or "screensaver" in actions or "transit" in actions:
                 rewrite = make_rewrite(
                     mutate or identity,
                     idle_fast="screensaver" in actions,
                     idle_never="local-lost" in actions,
+                    transit_open="transit" in actions,
                 )
                 await page.route("**/api/state", rewrite)
                 await page.route(url, rewrite)
@@ -495,6 +542,13 @@ async def run(url: str, out: Path, only: str = "") -> None:
                     await page.route(
                         "**/api/pi5", lambda route, request, answer=answer: route.fulfill(json=answer)
                     )
+
+            if "transit" in actions:
+                variant = next((a for a in actions if a.startswith("transit-")), "transit")
+                answer = _transit_answer(variant)
+                await page.route(
+                    "**/api/transit", lambda route, request, answer=answer: route.fulfill(json=answer)
+                )
 
             if "local-lost" in actions:
                 await page.clock.install()

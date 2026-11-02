@@ -1,0 +1,340 @@
+{
+ "parameters": [
+  {
+   "name": "serverID",
+   "value": "www.linzag.at"
+  },
+  {
+   "name": "requestID",
+   "value": "0"
+  },
+  {
+   "name": "sessionID",
+   "value": "0"
+  },
+  {
+   "name": "calcTime",
+   "value": "71.954"
+  },
+  {
+   "name": "serverTime",
+   "value": "2026-11-02T00:42:08"
+  },
+  {
+   "name": "logRequestId",
+   "value": "bc509db28b99552f"
+  }
+ ],
+ "dm": {
+  "input": {
+   "input": "60500097"
+  },
+  "points": {
+   "point": {
+    "usage": "dm",
+    "type": "stop",
+    "name": "Linz/Donau, Hafenportal",
+    "stateless": "60500097",
+    "ref": {
+     "id": "60500097",
+     "gid": "at:44:41313",
+     "omc": "44001001",
+     "placeID": "4",
+     "place": "Linz/Donau",
+     "coords": "5449269.00,807104.00"
+    },
+    "infos": null
+   }
+  }
+ },
+ "departureList": [
+  {
+   "stopID": "60500097",
+   "x": "5449265",
+   "y": "807107",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "0",
+   "platformName": "",
+   "stopName": "Linz/Donau Hafenportal",
+   "nameWO": "Hafenportal",
+   "countdown": "12",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "12"
+   },
+   "servingLine": {
+    "key": "357",
+    "code": "3",
+    "number": "46",
+    "symbol": "46",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Hauptbahnhof",
+    "directionFrom": "Linz/Donau Hafenportal",
+    "name": "Obus",
+    "liErgRiProj": {
+     "line": "03046",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:46:"
+    },
+    "destID": "60501720",
+    "stateless": "esg:03046:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60500097",
+   "x": "5449265",
+   "y": "807107",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "0",
+   "platformName": "",
+   "stopName": "Linz/Donau Hafenportal",
+   "nameWO": "Hafenportal",
+   "countdown": "27",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "27"
+   },
+   "servingLine": {
+    "key": "359",
+    "code": "3",
+    "number": "46",
+    "symbol": "46",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Hauptbahnhof",
+    "directionFrom": "Linz/Donau Hafenportal",
+    "name": "Obus",
+    "liErgRiProj": {
+     "line": "03046",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:46:"
+    },
+    "destID": "60501720",
+    "stateless": "esg:03046:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60500097",
+   "x": "5449265",
+   "y": "807107",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "0",
+   "platformName": "",
+   "stopName": "Linz/Donau Hafenportal",
+   "nameWO": "Hafenportal",
+   "countdown": "42",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "42"
+   },
+   "servingLine": {
+    "key": "360",
+    "code": "3",
+    "number": "46",
+    "symbol": "46",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Hauptbahnhof",
+    "directionFrom": "Linz/Donau Hafenportal",
+    "name": "Obus",
+    "liErgRiProj": {
+     "line": "03046",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:46:"
+    },
+    "destID": "60501720",
+    "stateless": "esg:03046:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60500097",
+   "x": "5449265",
+   "y": "807107",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "0",
+   "platformName": "",
+   "stopName": "Linz/Donau Hafenportal",
+   "nameWO": "Hafenportal",
+   "countdown": "57",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "7",
+    "minute": "57"
+   },
+   "servingLine": {
+    "key": "361",
+    "code": "3",
+    "number": "46",
+    "symbol": "46",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Hauptbahnhof",
+    "directionFrom": "Linz/Donau Hafenportal",
+    "name": "Obus",
+    "liErgRiProj": {
+     "line": "03046",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:46:"
+    },
+    "destID": "60501720",
+    "stateless": "esg:03046:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60500097",
+   "x": "5449265",
+   "y": "807107",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "0",
+   "platformName": "",
+   "stopName": "Linz/Donau Hafenportal",
+   "nameWO": "Hafenportal",
+   "countdown": "72",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "8",
+    "minute": "12"
+   },
+   "servingLine": {
+    "key": "362",
+    "code": "3",
+    "number": "46",
+    "symbol": "46",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Hauptbahnhof",
+    "directionFrom": "Linz/Donau Hafenportal",
+    "name": "Obus",
+    "liErgRiProj": {
+     "line": "03046",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:46:"
+    },
+    "destID": "60501720",
+    "stateless": "esg:03046:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  },
+  {
+   "stopID": "60500097",
+   "x": "5449265",
+   "y": "807107",
+   "mapName": "NAV5",
+   "area": "1",
+   "platform": "0",
+   "platformName": "",
+   "stopName": "Linz/Donau Hafenportal",
+   "nameWO": "Hafenportal",
+   "countdown": "87",
+   "dateTime": {
+    "year": "2026",
+    "month": "11",
+    "day": "3",
+    "weekday": "3",
+    "hour": "8",
+    "minute": "27"
+   },
+   "servingLine": {
+    "key": "364",
+    "code": "3",
+    "number": "46",
+    "symbol": "46",
+    "motType": "5",
+    "mtSubcode": "0",
+    "realtime": "0",
+    "direction": "Hauptbahnhof",
+    "directionFrom": "Linz/Donau Hafenportal",
+    "name": "Obus",
+    "liErgRiProj": {
+     "line": "03046",
+     "project": "f26",
+     "direction": "H",
+     "supplement": "E",
+     "network": "esg",
+     "gid": "at:esg:46:"
+    },
+    "destID": "60501720",
+    "stateless": "esg:03046:E:H:f26",
+    "lineDisplay": "line"
+   },
+   "operator": {
+    "code": "1",
+    "name": "Linz Linien GmbH",
+    "publicCode": ""
+   }
+  }
+ ]
+}

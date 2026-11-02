@@ -11,6 +11,24 @@ Commit einzeln aufzuführen.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-02
+
+### Hinzugefügt
+
+- Abfahrten am Homescreen ([#27](https://github.com/phobits/pi-hub/issues/27)):
+  An Werktagen zwischen 06:00 und 10:00 stehen unter den Terminen die
+  nächsten Abfahrten einzelner Linien der Linz AG, z. B. „70 Schiffswerft
+  jetzt · 26′ · 49′“ (ab 60 Minuten die Uhrzeit, höchstens drei, zwei wenn
+  der Platz nicht reicht). Die Daten kommen aus der EFA der Linz AG über
+  `/api/transit`, nur im Fenster und nur, solange der Homescreen sichtbar ist;
+  außerhalb geht keine Anfrage raus. Jede Haltestelle steht für sich:
+  scheitert eine, bleiben ihre Zeiten höchstens 10 Minuten mit „Stand …“
+  stehen, dann „nicht verfügbar“. Konfiguration über `TRANSIT_STOPS`,
+  `TRANSIT_WINDOW`, `TRANSIT_DAYS`, `TRANSIT_DEPARTURES`; ohne
+  `TRANSIT_STOPS` ist die Funktion aus.
+- `scripts/screenshot-states.py` hat Szenarien für die Abfahrten (normal,
+  ohne Musik-Leiste, Wortuhr, veraltet, Fehler).
+
 ## [0.16.0] - 2026-11-01
 
 ### Hinzugefügt

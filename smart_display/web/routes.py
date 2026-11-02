@@ -71,6 +71,18 @@ def _pi5_enabled(services: dict) -> bool:
     return bool(provider is not None and provider.enabled)
 
 
+def _transit_ui(services: dict) -> dict | None:
+    provider = services.get("transit")
+    return provider.ui_config() if provider is not None else None
+
+
+def _transit_on(services: dict, now: datetime) -> bool:
+    """Whether the first frame already reserves the departure rows, so a cold
+    load inside the window does not shrink the agenda a moment later."""
+    provider = services.get("transit")
+    return bool(provider is not None and provider.enabled and provider.in_window(now))
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -131,9 +143,11 @@ def create_blueprint() -> Blueprint:
                 "allow_shutdown": bool(config.app.allow_shutdown),
                 "state_etag": state_etag,
                 "pi5_enabled": _pi5_enabled(services),
+                "transit": _transit_ui(services),
             },
             initial_state=state,
             initial_night=initial_night,
+            initial_transit=_transit_on(services, now_local),
             initial_clock=initial_clock,
             qlocktwo_grid=QLOCKTWO_GRID,
             qlocktwo_active=initial_qlocktwo,
@@ -318,6 +332,18 @@ def create_blueprint() -> Blueprint:
         is visible; the provider fetches from the pi5 at most every 10 s."""
         services = current_app.extensions["smart_display"]
         provider = services.get("pi5_status")
+        if provider is None:
+            return jsonify({"status": "disabled", "updated_at": None, "message": "", "data": None})
+        return jsonify(provider.status())
+
+    @blueprint.get("/api/transit")
+    @local_only
+    def transit_departures():
+        """Departures under the agenda (#27). Polled only while the home screen
+        is visible inside the window; outside it the answer is ``inactive``
+        and nothing is fetched."""
+        services = current_app.extensions["smart_display"]
+        provider = services.get("transit")
         if provider is None:
             return jsonify({"status": "disabled", "updated_at": None, "message": "", "data": None})
         return jsonify(provider.status())

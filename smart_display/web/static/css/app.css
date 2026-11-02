@@ -819,6 +819,22 @@ body[data-watch-face="analog"] .weather__day-min {
   display: none;
 }
 
+/* #27: departures between agenda and music, only inside the window. The row
+   is `auto`, but its content is not: one 34 px row per configured stop, always
+   present while on and updated in place, so the agenda's measured height
+   never depends on departure data. */
+.side[data-transit="on"] {
+  grid-template-rows: 36px minmax(0, 1fr) auto var(--music-h, 60px);
+}
+
+.side[data-transit="on"][data-music="hidden"] {
+  grid-template-rows: 36px minmax(0, 1fr) auto;
+}
+
+.side:not([data-transit="on"]) .transit {
+  display: none;
+}
+
 .rail {
   /* A grid item keeps its content width by default — without this a long
      note pushes the timer chip out of the column instead of ellipsizing. */
@@ -1001,6 +1017,66 @@ body[data-watch-face="analog"] .weather__day-min {
 .agenda__empty-sub {
   margin-top: 4px;
   font-size: 15px;
+  color: var(--ink-3);
+}
+
+/* ---- Departures (#27) ---------------------------------------------------- */
+.transit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.transit__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 2px;
+  min-width: 0;
+}
+
+.transit__line {
+  flex: none;
+  min-width: 36px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 26px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.transit__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.transit__row.is-behind .transit__label {
+  color: var(--amber);
+}
+
+.transit__times {
+  flex: none;
+  white-space: nowrap;
+  font-size: 21px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.transit__times.is-note {
+  font-size: 15px;
+  font-weight: 500;
   color: var(--ink-3);
 }
 

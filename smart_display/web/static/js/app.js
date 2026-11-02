@@ -19,6 +19,12 @@
   let pi5Result = null;
   let pi5ResultAt = 0;
   let pi5RenderedKey = "";
+  // #27: departures under the agenda, polled only while the home screen is
+  // visible inside the configured window.
+  let transitTimer = null;
+  let transitRequestInFlight = false;
+  let transitResult = null;
+  let transitRenderedKey = "";
   let suppressClickUntil = 0;
   const SCREEN_TRANSITION_MS = 220;
   const QUEUE_REFRESH_MS = 30_000;
@@ -120,6 +126,27 @@
     timeZone: TIMEZONE,
   });
   let clockTimer = null;
+
+  // #27: departure window. The backend checks it too and fetches nothing
+  // outside it; this copy only decides whether the rows show and whether to
+  // ask at all. Days are ISO (1 = Monday), the bounds "HH:MM" in TIMEZONE.
+  const TRANSIT =
+    config.transit && Array.isArray(config.transit.stops) && config.transit.stops.length
+      ? config.transit
+      : null;
+  const TRANSIT_DAYS = new Set(TRANSIT && Array.isArray(TRANSIT.days) ? TRANSIT.days : []);
+  const TRANSIT_SHOWN = TRANSIT ? Math.max(1, Number(TRANSIT.departures) || 3) : 0;
+  // Fewer than this are never dropped for width; the stop name ellipsizes.
+  const TRANSIT_MIN_SHOWN = 2;
+  const TRANSIT_REFRESH_MS = 30_000;
+  // Same cap as the backend's STALE_MAX_AGE_SECONDS: after that a timetable
+  // is a guess, and the row says "nicht verfügbar".
+  const TRANSIT_STALE_MAX_MS = 10 * 60 * 1000;
+  const ZONE_WEEKDAY_FMT = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    timeZone: TIMEZONE,
+  });
+  const ISO_WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
   // QLOCKTWO word-clock face. The Python module smart_display/watch_faces.py
   // owns the canonical layout; this block is a 1:1 mirror so the minute tick
@@ -812,6 +839,7 @@
     weatherForecast: document.getElementById("weather-forecast"),
     calendarList: document.getElementById("calendar-list"),
     cardsColumn: document.getElementById("cards-column"),
+    transit: document.getElementById("transit"),
     // Status rail: one note — local link lost, else the calendar's age.
     statusNote: document.getElementById("status-note"),
     statusDot: document.getElementById("status-dot"),
@@ -1201,6 +1229,7 @@
     nodes.screensaverTime.textContent = CLOCK_TIME_FMT.format(now);
     applyNight(false);
     refreshCalendarMinute();
+    syncTransit();
     // #22: a warning ends on its minute even when no fetch lands.
     renderScreensaverWarning();
     renderWeatherDetail(false);
@@ -2823,6 +2852,10 @@
       renderSystem(state.system || {});
       lastRenderedSectionKeys.system = systemKey;
     }
+    // #27: the width fit measures text, so a resize or late fonts re-fit it.
+    if (options.force) {
+      renderTransit(true);
+    }
   }
 
   // Ticket #1: the clock is the hero. If timesyncd has not stepped it yet the
@@ -3493,6 +3526,144 @@
     pi5RefreshTimer = window.setInterval(loadPi5Status, PI5_REFRESH_MS);
   }
 
+  // ---- #27: departures --------------------------------------------------------
+  // Two rows under the agenda on the configured days inside the window: line,
+  // stop, the next departures as "6′ · 26′ · 49′" (from 60 min on the clock
+  // time). The minute tick only recomputes the countdowns from the absolute
+  // times it already has; /api/transit is asked every 30 s, and only while the
+  // home screen is what one sees.
+  function transitWindowActive() {
+    if (!TRANSIT) return false;
+    if (!TRANSIT_DAYS.has(ISO_WEEKDAYS[ZONE_WEEKDAY_FMT.format(new Date())])) return false;
+    const start = parseHhmm(TRANSIT.from);
+    const end = parseHhmm(TRANSIT.to);
+    if (start === null || end === null) return false;
+    const { hour, minute } = currentHourMinute();
+    const minuteOfDay = hour * 60 + minute;
+    return minuteOfDay >= start && minuteOfDay < end;
+  }
+
+  function syncTransit() {
+    if (!TRANSIT || !nodes.transit || !nodes.cardsColumn) return;
+    const on = transitWindowActive();
+    const value = on ? "on" : "off";
+    if (nodes.cardsColumn.dataset.transit !== value) {
+      nodes.cardsColumn.dataset.transit = value;
+      // The agenda's row grew or shrank: it budgets its rows from the live
+      // clientHeight, so it re-measures now instead of clipping.
+      renderCalendar(state.calendar || {});
+      lastRenderedSectionKeys.calendar = sectionRenderKey(state.calendar);
+    }
+    if (!on) {
+      // Tomorrow's window must not open with today's timetable.
+      transitResult = null;
+    }
+    const poll = on && activeScreen === "home" && !screensaverActive;
+    if (poll && transitTimer === null) {
+      loadTransit();
+      transitTimer = window.setInterval(loadTransit, TRANSIT_REFRESH_MS);
+    } else if (!poll && transitTimer !== null) {
+      window.clearInterval(transitTimer);
+      transitTimer = null;
+    }
+    renderTransit(false);
+  }
+
+  async function loadTransit() {
+    if (transitRequestInFlight) return;
+    transitRequestInFlight = true;
+    try {
+      const result = await fetchJson("/api/transit");
+      if (!transitWindowActive()) {
+        // The window closed while this request was out: syncTransit has
+        // already dropped the data, and yesterday's must not come back with
+        // tomorrow's first frame.
+        transitResult = null;
+      } else if (result && typeof result.status === "string") {
+        // "inactive": the backend's clock says the window is over — show
+        // nothing rather than a timetable it refused to fetch.
+        transitResult = result.data && Array.isArray(result.data.stops) ? result : null;
+      } else if (transitResult) {
+        // The local backend did not answer, not the EFA: keep the times with
+        // their age (capped by TRANSIT_STALE_MAX_MS in transitStopView).
+        transitResult = { ...transitResult, local: true };
+      } else {
+        transitResult = { status: "error", local: true, data: null };
+      }
+      renderTransit(false);
+    } finally {
+      transitRequestInFlight = false;
+    }
+  }
+
+  // "6′" up to 59 minutes, "jetzt" in the departure minute, else "07:49".
+  // Mirrors the backend's cut-off (select_upcoming in transit_efa.py): a
+  // departure counts until a minute after it is due, or — with a walk time —
+  // only while it can still be reached.
+  function transitDepartureTimes(stop, nowMs) {
+    const walkMs = Math.max(0, Number(stop.walk_minutes) || 0) * 60_000;
+    return (Array.isArray(stop.departures) ? stop.departures : [])
+      .map((departure) => parseIsoMs(departure && (departure.expected || departure.planned)))
+      .filter((ms) => ms !== null && (walkMs > 0 ? ms - nowMs >= walkMs : ms - nowMs >= -60_000))
+      .map((ms) => {
+        const minutes = Math.ceil((ms - nowMs) / 60_000);
+        if (minutes <= 0) return "jetzt";
+        if (minutes < 60) return `${minutes}′`;
+        return CLOCK_TIME_FMT.format(new Date(ms));
+      });
+  }
+
+  function transitStopView(stop, local, nowMs) {
+    if (!transitResult) return { behind: "", times: [], note: "–" };
+    if (!stop || stop.status === "error") return { behind: "", times: [], note: "nicht verfügbar" };
+    const behindData = Boolean(local) || stop.status === "stale";
+    const updatedMs = parseIsoMs(stop.updated_at);
+    if (behindData && (updatedMs === null || nowMs - updatedMs > TRANSIT_STALE_MAX_MS)) {
+      return { behind: "", times: [], note: "nicht verfügbar" };
+    }
+    const times = transitDepartureTimes(stop, nowMs);
+    if (times.length === 0) {
+      // "keine Abfahrt" only on a current answer; old data that ran out is
+      // not a statement about the timetable.
+      return { behind: "", times: [], note: behindData ? "nicht verfügbar" : "keine Abfahrt" };
+    }
+    const behind = behindData ? `Stand ${formatStamp(stop.updated_at)}` : "";
+    return { behind, times, note: "" };
+  }
+
+  function renderTransit(force) {
+    if (!TRANSIT || !nodes.transit || screensaverActive) return;
+    if (!nodes.cardsColumn || nodes.cardsColumn.dataset.transit !== "on") return;
+    const nowMs = Date.now();
+    const stops = transitResult && transitResult.data ? transitResult.data.stops : [];
+    const local = Boolean(transitResult && transitResult.local);
+    const views = TRANSIT.stops.map((_, index) => transitStopView(stops[index], local, nowMs));
+    const key = JSON.stringify(views);
+    if (!force && key === transitRenderedKey) return;
+    transitRenderedKey = key;
+    const rows = nodes.transit.querySelectorAll(".transit__row");
+    views.forEach((view, index) => {
+      const row = rows[index];
+      if (!row) return;
+      const label = row.querySelector(".transit__label");
+      const times = row.querySelector(".transit__times");
+      label.textContent = view.behind || TRANSIT.stops[index].label;
+      row.classList.toggle("is-behind", Boolean(view.behind));
+      times.classList.toggle("is-note", Boolean(view.note));
+      if (view.note) {
+        times.textContent = view.note;
+        return;
+      }
+      // As many as fit beside a readable stop name, never fewer than two.
+      let shown = Math.min(TRANSIT_SHOWN, view.times.length);
+      times.textContent = view.times.slice(0, shown).join(" · ");
+      while (shown > TRANSIT_MIN_SHOWN && label.scrollWidth > label.clientWidth) {
+        shown -= 1;
+        times.textContent = view.times.slice(0, shown).join(" · ");
+      }
+    });
+  }
+
   function setActiveScreen(target, options = {}) {
     if (!nodes.screenStage || !SCREEN_ORDER.includes(target)) {
       return;
@@ -3551,6 +3722,7 @@
     if (target !== "pi5") {
       stopPi5Refresh();
     }
+    syncTransit();
     // Both progress renderers are gated on the visible screen, so repaint the
     // one that just became visible instead of waiting up to a second for it.
     renderSpotifyProgress();
@@ -4341,6 +4513,7 @@
     }
     screensaverActive = true;
     lastScreensaverPollAt = performance.now();
+    syncTransit();
     closeWarnSheet();
     setActiveScreen("home", { animate: false });
     resetWeatherView();
